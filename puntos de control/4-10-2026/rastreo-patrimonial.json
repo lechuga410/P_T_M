@@ -1,0 +1,74 @@
+{
+  "exportedAt": "2026-10-04T07:03:19.932Z",
+  "investments": [
+    {
+      "id": "295f3b32-226e-421c-b611-7b3dfbdb8682",
+      "name": "Cajita NU",
+      "institution": "Nu Colombia Compañía de Financiamiento S.A.",
+      "type": "Inversión",
+      "value": 371012.24,
+      "growth": 0,
+      "monthlyIncome": 2875.3448600000006,
+      "annualYield": 9.3,
+      "status": "estimado",
+      "accent": "#6b78b9",
+      "date": "2026-09-30",
+      "openingTime": "18:58",
+      "verifiedBalance": 371335.56,
+      "verifiedAt": "2026-10-03T23:40:44.664Z",
+      "verifiedPrincipal": 371012.24
+    }
+  ],
+  "movements": [
+    {
+      "id": "28194a0a-3670-4d61-8537-045d5b815c6d",
+      "title": "Agregaste dinero a tu Cajita",
+      "amount": 371012.24,
+      "direction": "transfer",
+      "category": "Aporte a inversión",
+      "date": "2026-09-30",
+      "time": "18:58",
+      "investmentId": "295f3b32-226e-421c-b611-7b3dfbdb8682",
+      "sourceFile": "Screenshot_20261003_182933_Nu.jpg"
+    },
+    {
+      "id": "de695ddd-d47c-44e7-89e5-95373cc9673a",
+      "title": "Pagaste en P.A. ADDI",
+      "amount": 186220.88,
+      "direction": "expense",
+      "category": "Gasto",
+      "date": "2026-09-30",
+      "time": "18:52",
+      "sourceFile": "Screenshot_20261003_182933_Nu.jpg"
+    },
+    {
+      "id": "8e414381-c100-42cd-ba38-33ff64127cb0",
+      "title": "GMF / 4x1000",
+      "amount": 744.88,
+      "direction": "expense",
+      "category": "Impuesto",
+      "date": "2026-09-30",
+      "time": "18:52",
+      "sourceFile": "Screenshot_20261003_182933_Nu.jpg",
+      "relatedMovementId": "de695ddd-d47c-44e7-89e5-95373cc9673a"
+    },
+    {
+      "id": "b1fa9737-8e3e-4927-9c81-95b6b058ad93",
+      "title": "Recibiste de Bancolombia",
+      "amount": 557978,
+      "direction": "income",
+      "category": "Ingreso",
+      "incomeActivity": "Empleo",
+      "date": "2026-09-30",
+      "time": "15:09",
+      "sourceFile": "Screenshot_20261003_182933_Nu.jpg"
+    }
+  ],
+  "patrimonialGoals": [
+    {
+      "id": "80675128-6685-4306-8296-38945fcbfb5f",
+      "targetAmount": 5000000,
+      "createdAt": "2026-10-04T06:36:36.238Z"
+    }
+  ]
+}
