@@ -26,7 +26,7 @@ export interface Movement {
   date: string
   time?: string
   amount: number
-  direction: 'income' | 'expense' | 'transfer'
+  direction: 'income' | 'expense' | 'transfer' | 'withdrawal'
   category: string
   incomeActivity?: string
   institution?: string
@@ -42,7 +42,7 @@ export interface PortfolioEvent {
   title: string
   date: string
   amount: number
-  direction: 'income' | 'expense' | 'transfer'
+  direction: 'income' | 'expense' | 'transfer' | 'withdrawal'
   category: string
   source: 'movement' | 'investment'
 }

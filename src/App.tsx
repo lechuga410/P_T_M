@@ -12,6 +12,7 @@ import nuCajitaImage from '../imagenes/cajita_nu.jfif'
 import type { ImportedTransaction } from './lib/financialImport'
 import { parseCopAmount } from './lib/currencyInput'
 import { calculateInvestmentHistory, calculateInvestmentPerformance, withCurrentInvestmentPerformance } from './lib/investmentPerformance'
+import { AVAILABLE_ACCOUNT_ID, affectsInvestment, signedFlowAmount, WITHDRAWAL_CATEGORY, WITHDRAWAL_RECEIVED_CATEGORY } from './lib/investmentFlows'
 import {
   appendDailyInterestSnapshots,
   buildDailyInterestProjection,
@@ -123,6 +124,14 @@ const formatPreciseCurrency = (amount: number) =>
     maximumFractionDigits: 2,
   }).format(amount)
 
+const formatLiveCurrency = (amount: number) =>
+  new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  }).format(amount)
+
 const formatVerifiedAt = (value: string) =>
   new Intl.DateTimeFormat('es-CO', {
     dateStyle: 'medium',
@@ -159,6 +168,67 @@ function readRoute(): AppRoute {
 
   const validSections: SectionId[] = ['dashboard', 'investments', 'new-investment', 'movements', 'projections']
   return validSections.includes(hash as SectionId) ? { section: hash as SectionId } : { section: 'dashboard' }
+}
+
+const TICK_INTERVAL_MS = 1_000
+
+const applyValueDeltas = (investments: Investment[], deltas: Map<string, number>): Investment[] =>
+  investments.map((investment) => {
+    const delta = deltas.get(investment.id)
+    if (!delta) return investment
+    const value = Math.max(investment.value + delta, 0)
+    return {
+      ...investment,
+      value,
+      monthlyIncome: investment.type === 'Disponible' ? 0 : (value * (investment.annualYield / 100)) / 12,
+    }
+  })
+
+// Un retiro resta de la inversión origen y, si hay destino, suma ese mismo monto al dinero disponible.
+const withWithdrawalReceipt = (withdrawal: Movement, destinationInvestmentId?: string): Movement[] => {
+  if (!destinationInvestmentId) return [withdrawal]
+  const received = createMovement({
+    title: `Retiro recibido · ${withdrawal.title}`,
+    amount: withdrawal.amount,
+    direction: 'transfer',
+    category: WITHDRAWAL_RECEIVED_CATEGORY,
+    date: withdrawal.date,
+    time: withdrawal.time,
+    investmentId: destinationInvestmentId,
+    sourceFile: withdrawal.sourceFile,
+  })
+  return [
+    { ...withdrawal, relatedMovementId: withdrawal.relatedMovementId ?? received.id },
+    { ...received, relatedMovementId: withdrawal.id },
+  ]
+}
+
+// Sustituye el marcador de "Dinero disponible" por la cuenta real, creándola si todavía no existe.
+const resolveAvailableAccount = (investments: Investment[], movements: Movement[]): { investments: Investment[]; movements: Movement[] } => {
+  if (!movements.some((movement) => movement.investmentId === AVAILABLE_ACCOUNT_ID)) return { investments, movements }
+  let account = investments.find((investment) => investment.type.toLowerCase() === 'disponible')
+  let nextInvestments = investments
+  if (!account) {
+    account = {
+      id: crypto.randomUUID(),
+      name: 'Dinero disponible',
+      institution: 'Cuenta de ahorros',
+      type: 'Disponible',
+      value: 0,
+      growth: 0,
+      monthlyIncome: 0,
+      annualYield: 0,
+      status: 'real',
+      accent: '#a78bfa',
+      date: movements.find((movement) => movement.investmentId === AVAILABLE_ACCOUNT_ID)?.date ?? new Date().toISOString().slice(0, 10),
+    }
+    nextInvestments = [...investments, account]
+  }
+  const accountId = account.id
+  return {
+    investments: nextInvestments,
+    movements: movements.map((movement) => movement.investmentId === AVAILABLE_ACCOUNT_ID ? { ...movement, investmentId: accountId } : movement),
+  }
 }
 
 function App() {
@@ -199,6 +269,8 @@ function App() {
     category: '',
     incomeActivity: 'Empleo',
     direction: 'income' as Movement['direction'],
+    investmentId: '',
+    destinationInvestmentId: '',
     date: now.toISOString().slice(0, 10),
   }))
   const [goalTarget, setGoalTarget] = useState('')
@@ -231,7 +303,9 @@ function App() {
       if (event.key === MOVEMENTS_STORAGE_KEY) setMovements(loadCollection(MOVEMENTS_STORAGE_KEY, movementExamples))
       if (event.key === DAILY_INTEREST_STORAGE_KEY) setDailyInterestHistory(loadDailyInterestHistory())
     }
-    const interval = window.setInterval(refreshNow, 60_000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshNow()
+    }, TICK_INTERVAL_MS)
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') refreshNow()
     }
@@ -246,9 +320,10 @@ function App() {
     }
   }, [])
 
+  const todayKey = formatLocalDate(now)
   const dailyInterestWithAppendedSnapshots = useMemo(
-    () => appendDailyInterestSnapshots(investments, movements, dailyInterestHistory, now),
-    [dailyInterestHistory, investments, movements, now],
+    () => appendDailyInterestSnapshots(investments, movements, dailyInterestHistory, new Date(`${todayKey}T12:00:00`)),
+    [dailyInterestHistory, investments, movements, todayKey],
   )
 
   useEffect(() => {
@@ -417,7 +492,7 @@ function App() {
     [movements, route.investmentId],
   )
   const investmentContributions = investmentMovements.reduce(
-    (total, movement) => total + (movement.direction === 'transfer' ? movement.amount : 0),
+    (total, movement) => total + (affectsInvestment(movement) ? signedFlowAmount(movement) : 0),
     0,
   )
   const navSection = activeSection === 'investment-detail' ? 'investments' : activeSection
@@ -503,13 +578,13 @@ function App() {
     const recordedContributions = movements
       .filter((movement) =>
         movement.investmentId === selectedInvestmentRecord.id
-        && movement.direction === 'transfer'
+        && affectsInvestment(movement)
         && new Date(`${movement.date}T${movement.time || '12:00'}:00`).getTime() <= verifiedDate.getTime(),
       )
-      .reduce((total, movement) => total + movement.amount, 0)
+      .reduce((total, movement) => total + signedFlowAmount(movement), 0)
     const allRecordedContributions = movements
-      .filter((movement) => movement.investmentId === selectedInvestmentRecord.id && movement.direction === 'transfer')
-      .reduce((total, movement) => total + movement.amount, 0)
+      .filter((movement) => movement.investmentId === selectedInvestmentRecord.id && affectsInvestment(movement))
+      .reduce((total, movement) => total + signedFlowAmount(movement), 0)
     const untrackedPrincipal = Math.max(selectedInvestmentRecord.value - allRecordedContributions, 0)
     const verifiedPrincipal = Math.min(balance, recordedContributions + untrackedPrincipal)
     const updatedInvestments = investments.map((investment) => investment.id === selectedInvestmentRecord.id
@@ -533,22 +608,27 @@ function App() {
 
   const deleteMovement = (movement: Movement) => {
     if (!window.confirm(`¿Eliminar el movimiento "${movement.title}"? Esta acción no se puede deshacer.`)) return
+    const isWithdrawalPair = (item: Movement) =>
+      item.direction === 'withdrawal' || item.category === WITHDRAWAL_RECEIVED_CATEGORY
+    const removed = movements.filter((item) =>
+      item.id === movement.id
+      || (isWithdrawalPair(movement) && isWithdrawalPair(item)
+        && (item.id === movement.relatedMovementId || item.relatedMovementId === movement.id)),
+    )
+    const removedIds = new Set(removed.map((item) => item.id))
     if (!persistMovements(movements
-      .filter((item) => item.id !== movement.id)
-      .map((item) => item.relatedMovementId === movement.id
+      .filter((item) => !removedIds.has(item.id))
+      .map((item) => item.relatedMovementId && removedIds.has(item.relatedMovementId)
         ? { ...item, relatedMovementId: undefined }
         : item))) return
-    if (!movement.investmentId) return
 
-    persistInvestments(investments.map((investment) => {
-      if (investment.id !== movement.investmentId) return investment
-      const value = Math.max(investment.value - movement.amount, 0)
-      return {
-        ...investment,
-        value,
-        monthlyIncome: investment.type === 'Disponible' ? 0 : (value * (investment.annualYield / 100)) / 12,
+    const deltas = new Map<string, number>()
+    for (const item of removed) {
+      if (item.investmentId && affectsInvestment(item)) {
+        deltas.set(item.investmentId, (deltas.get(item.investmentId) ?? 0) - signedFlowAmount(item))
       }
-    }))
+    }
+    if (deltas.size) persistInvestments(applyValueDeltas(investments, deltas))
   }
 
   const addInvestment = (event: FormEvent<HTMLFormElement>) => {
@@ -590,21 +670,51 @@ function App() {
       return
     }
 
+    const flowAccountId = movementForm.investmentId || undefined
+    const isWithdrawal = movementForm.direction === 'withdrawal'
+    if (isWithdrawal) {
+      const source = currentInvestments.find((investment) => investment.id === flowAccountId)
+      if (!source) {
+        setFormMessage('Selecciona la inversión de la que retiras el dinero.')
+        return
+      }
+      if (amount > source.value + 0.005) {
+        setFormMessage(`El retiro supera el saldo actual de ${source.name} (${formatPreciseCurrency(source.value)}).`)
+        return
+      }
+    }
+
+    const nowTime = new Date()
+    const time = flowAccountId && movementForm.date === formatLocalDate(nowTime)
+      ? `${String(nowTime.getHours()).padStart(2, '0')}:${String(nowTime.getMinutes()).padStart(2, '0')}`
+      : undefined
     const movement = createMovement({
       title: movementForm.title.trim(),
       amount,
       direction: movementForm.direction,
-      category: movementForm.category.trim() || 'Sin categoría',
+      category: movementForm.category.trim() || (isWithdrawal ? WITHDRAWAL_CATEGORY : 'Sin categoría'),
       incomeActivity: movementForm.direction === 'income'
         ? movementForm.incomeActivity.trim() || 'Empleo'
         : undefined,
       date: movementForm.date,
+      time,
+      investmentId: ['transfer', 'withdrawal', 'expense'].includes(movementForm.direction) ? flowAccountId : undefined,
     })
-    if (!persistMovements([movement, ...movements])) return
-    setMovementForm({ title: '', amount: '', category: '', incomeActivity: 'Empleo', direction: 'income', date: new Date().toISOString().slice(0, 10) })
-    setFormMessage('Movimiento registrado.')
+    const resolvedNew = resolveAvailableAccount(investments, isWithdrawal
+      ? withWithdrawalReceipt(movement, movementForm.destinationInvestmentId || undefined)
+      : [movement])
+    const created = resolvedNew.movements
+    const deltas = new Map<string, number>()
+    for (const item of created) {
+      if (item.investmentId && affectsInvestment(item)) {
+        deltas.set(item.investmentId, (deltas.get(item.investmentId) ?? 0) + signedFlowAmount(item))
+      }
+    }
+    if ((deltas.size || resolvedNew.investments !== investments) && !persistInvestments(applyValueDeltas(resolvedNew.investments, deltas))) return
+    if (!persistMovements([...created, ...movements])) return
+    setMovementForm({ title: '', amount: '', category: '', incomeActivity: 'Empleo', direction: 'income', investmentId: '', destinationInvestmentId: '', date: new Date().toISOString().slice(0, 10) })
+    setFormMessage(isWithdrawal ? 'Retiro registrado y saldos actualizados.' : 'Movimiento registrado.')
   }
-
   const exportData = () => {
     const blob = new Blob(
       [JSON.stringify({ exportedAt: new Date().toISOString(), investments, movements, patrimonialGoals, dailyInterestHistory: dailyInterestWithAppendedSnapshots }, null, 2)],
@@ -629,46 +739,41 @@ function App() {
         : undefined,
       date: transaction.date,
       time: transaction.time || undefined,
-      investmentId: transaction.direction === 'transfer' ? transaction.investmentId : undefined,
+      investmentId: ['transfer', 'withdrawal', 'expense'].includes(transaction.direction) ? transaction.investmentId : undefined,
       sourceFile: transaction.sourceFile,
     }))
     const importedMovementIds = new Map(
       transactions.map((transaction, index) => [transaction.id, imported[index].id]),
     )
-    const importedWithRelations = imported.map((movement, index) => {
+    const resolvedImport = resolveAvailableAccount(investments, imported.flatMap((movement, index) => {
       const relatedTransactionId = transactions[index].relatedTransactionId
       const relatedMovementId = relatedTransactionId ? importedMovementIds.get(relatedTransactionId) : undefined
-      return relatedMovementId ? { ...movement, relatedMovementId } : movement
-    })
-    const additions = new Map<string, number>()
-    for (const transaction of transactions) {
-      if (transaction.direction === 'transfer' && transaction.investmentId) {
-        additions.set(transaction.investmentId, (additions.get(transaction.investmentId) ?? 0) + Number(transaction.amount))
+      const base = relatedMovementId ? { ...movement, relatedMovementId } : movement
+      return base.direction === 'withdrawal'
+        ? withWithdrawalReceipt(base, transactions[index].destinationInvestmentId)
+        : [base]
+    }))
+    const importedWithRelations = resolvedImport.movements
+    const deltas = new Map<string, number>()
+    for (const movement of importedWithRelations) {
+      if (movement.investmentId && affectsInvestment(movement)) {
+        deltas.set(movement.investmentId, (deltas.get(movement.investmentId) ?? 0) + signedFlowAmount(movement))
       }
     }
-    if (additions.size) {
-      if (!persistInvestments(investments.map((investment) => {
-        const addition = additions.get(investment.id) ?? 0
-        const value = investment.value + addition
-        return addition
-          ? {
-              ...investment,
-              value,
-              monthlyIncome: investment.type === 'Disponible' ? 0 : (value * (investment.annualYield / 100)) / 12,
-            }
-          : investment
-      }))) return
-    }
+    if ((deltas.size || resolvedImport.investments !== investments) && !persistInvestments(applyValueDeltas(resolvedImport.investments, deltas))) return
     if (!persistMovements([...importedWithRelations, ...movements])) return
     setIsImportOpen(false)
-    const assignedCount = transactions.filter((transaction) => transaction.investmentId).length
-    setFormMessage(assignedCount
-      ? `${imported.length} movimiento(s) importado(s); ${assignedCount} aporte(s) sumado(s) a tus inversiones.`
-      : `${imported.length} movimiento(s) importado(s).`)
+    const withdrawalCount = importedWithRelations.filter((movement) => movement.direction === 'withdrawal' && movement.investmentId).length
+    const assignedCount = importedWithRelations.filter((movement) => movement.investmentId && movement.direction !== 'withdrawal' && movement.category !== WITHDRAWAL_RECEIVED_CATEGORY).length
+    const notes = [
+      assignedCount ? `${assignedCount} movimiento(s) aplicado(s) a tus cuentas` : '',
+      withdrawalCount ? `${withdrawalCount} retiro(s) descontado(s) de tus inversiones` : '',
+    ].filter(Boolean)
+    setFormMessage(`${imported.length} movimiento(s) importado(s)${notes.length ? `; ${notes.join('; ')}` : ''}.`)
   }
-
+  const portfolioInvestments = currentInvestments.filter((investment) => investment.type.toLowerCase() !== 'disponible')
   const hasData = investments.length > 0 || movements.length > 0 || dailyInterestWithAppendedSnapshots.length > 0
-  const hasCashflow = movements.some((movement) => movement.direction !== 'transfer')
+  const hasCashflow = movements.some((movement) => movement.direction === 'income' || movement.direction === 'expense')
   const activeTitle = activeSection === 'dashboard'
     ? 'Resumen de tu patrimonio'
     : activeSection === 'investment-detail'
@@ -862,7 +967,7 @@ function App() {
             </div>
             <div className="investment-overview-aside">
               <span className="overview-count-label">CUENTAS REGISTRADAS</span>
-              <strong>{String(investments.length).padStart(2, '0')}</strong>
+              <strong>{String(portfolioInvestments.length).padStart(2, '0')}</strong>
               <button type="button" onClick={() => navigateTo('new-investment')}><span>＋</span> Registrar inversión</button>
             </div>
             <span className="overview-orbit overview-orbit-one" />
@@ -871,11 +976,11 @@ function App() {
           <article className="panel list-panel">
             <div className="section-heading">
               <div><span className="section-kicker">PORTAFOLIO ACTIVO</span><h2>Tus inversiones</h2></div>
-              <span className="section-count">{investments.length}</span>
+              <span className="section-count">{portfolioInvestments.length}</span>
             </div>
-            {investments.length ? (
+            {portfolioInvestments.length ? (
               <div className="investment-list">
-                {currentInvestments.map((investment, index) => (
+                {portfolioInvestments.map((investment, index) => (
                   <button
                     type="button"
                     className={`investment-card${/nu|cajita/i.test(`${investment.name} ${investment.institution}`) ? ' nu-investment-card' : ''}`}
@@ -924,10 +1029,9 @@ function App() {
             <div className="detail-hero-content">
               <span className="detail-breadcrumb">{selectedInvestment.institution} <span>／</span> {selectedInvestment.type}</span>
               <div className="detail-title-row"><h2>{selectedInvestment.name}</h2><span className={`investment-status status-${selectedInvestmentRecord?.verifiedAt ? 'real' : selectedInvestment.status}`}>{selectedInvestmentRecord?.verifiedAt ? 'Saldo confirmado' : selectedInvestment.status === 'real' ? 'Dato real' : 'Estimado'}</span></div>
-              <span className="detail-balance-label">{selectedInvestmentRecord?.verifiedAt ? 'ÚLTIMO SALDO CONFIRMADO' : 'SALDO ESTIMADO AHORA'}</span>
-              <strong className="detail-balance">{formatPreciseCurrency(
-                selectedInvestmentRecord?.verifiedBalance ?? selectedInvestment.value,
-              )}</strong>
+              <span className="detail-balance-label">SALDO EN TIEMPO REAL</span>
+              <strong className="detail-balance">{formatLiveCurrency(selectedInvestment.value)}</strong>
+              {selectedInvestmentRecord?.verifiedAt ? <span className="detail-opening">Corte confirmado: {formatPreciseCurrency(selectedInvestmentRecord.verifiedBalance ?? 0)} · {formatVerifiedAt(selectedInvestmentRecord.verifiedAt)}</span> : null}
               <span className="detail-opening">Abierta el {formatDate(selectedInvestment.date)}{selectedInvestment.openingTime ? ` · ${selectedInvestment.openingTime}` : ''}</span>
             </div>
             <span className="detail-yield"><small>RENDIMIENTO ANUAL</small><strong>{selectedInvestment.annualYield}% <span>EA</span></strong></span>
@@ -936,7 +1040,7 @@ function App() {
           <section className="panel performance-panel">
             <div className="account-performance-heading">
               <div><span className="section-kicker">TU CUENTA · NU</span><h2>Saldo y rendimiento</h2></div>
-              <span className="performance-estimate-badge">{selectedInvestmentRecord?.verifiedAt ? 'PROYECCIONES' : 'ESTIMACIÓN'} · {selectedInvestment.annualYield}% EA</span>
+              <span className="performance-estimate-badge">TIEMPO REAL · {selectedInvestment.annualYield}% EA</span>
             </div>
 
             <details className="verified-balance-disclosure">
@@ -959,14 +1063,14 @@ function App() {
 
             <div className="account-balance-breakdown" aria-label="Capital y diferencia al corte">
               <div><span>APORTES REGISTRADOS</span><strong>{formatPreciseCurrency(selectedPerformance?.principal ?? investmentContributions)}</strong></div>
-              <div><span>DIFERENCIA AL CORTE</span><strong>{formatPreciseCurrency(selectedPerformance?.earned ?? 0)}</strong><small>{selectedInvestmentRecord?.verifiedAt ? 'Saldo confirmado menos aportes' : 'Estimación con tasa EA'}</small></div>
-              <div><span>{selectedInvestmentRecord?.verifiedAt ? 'SALDO CONFIRMADO' : 'SALDO ESTIMADO'}</span><strong>{formatPreciseCurrency(selectedPerformance?.currentValue ?? selectedInvestment.value)}</strong></div>
+              <div><span>RENDIMIENTO ACUMULADO</span><strong>{formatLiveCurrency(selectedPerformance?.earned ?? 0)}</strong><small>Saldo actual menos aportes · crece con el tiempo</small></div>
+              <div><span>SALDO ACTUAL</span><strong>{formatLiveCurrency(selectedPerformance?.currentValue ?? selectedInvestment.value)}</strong></div>
             </div>
 
             <section className="capital-evolution">
               <div className="performance-chart-heading">
                 <div><span className="chart-overline">HISTORIAL DE LA CUENTA</span><h3>Evolución del capital</h3><span>{selectedInvestmentRecord?.verifiedAt ? 'Saldo confirmado y aportes registrados' : 'Saldo y aportes registrados'}</span></div>
-                <div className="chart-current-balance"><small>SALDO AL FINAL DEL RANGO</small><strong>{formatPreciseCurrency(balanceHistory.at(-1)?.total ?? selectedInvestment.value)}</strong></div>
+                <div className="chart-current-balance"><small>SALDO AL FINAL DEL RANGO</small><strong>{formatLiveCurrency(balanceHistory.at(-1)?.total ?? selectedInvestment.value)}</strong></div>
               </div>
               <div className="chart-horizon-control" aria-label="Periodo de evolución del capital">
                 <div className="chart-horizon-heading">
@@ -1121,9 +1225,9 @@ function App() {
               <div className="detail-movement-list">
                 {investmentMovements.map((movement) => (
                   <div className="detail-movement-row" key={movement.id}>
-                    <span className={`movement-icon ${movement.direction}`}>{movement.direction === 'income' ? '↙' : movement.direction === 'expense' ? '↗' : '↔'}</span>
+                    <span className={`movement-icon ${movement.direction}`}>{movement.direction === 'income' ? '↙' : movement.direction === 'expense' || movement.direction === 'withdrawal' ? '↗' : '↔'}</span>
                     <span className="detail-movement-copy"><strong>{movement.title}</strong><small>{movement.category} · {formatDate(movement.date)}{movement.time ? ` · ${movement.time}` : ''}</small></span>
-                    <strong className={movement.direction === 'expense' ? 'movement-expense' : 'movement-income'}>{movement.direction === 'expense' ? '−' : '+'}{formatCurrency(movement.amount)}</strong>
+                    <strong className={signedFlowAmount(movement) < 0 ? 'movement-expense' : 'movement-income'}>{signedFlowAmount(movement) < 0 ? '−' : '+'}{formatCurrency(movement.amount)}</strong>
                   </div>
                 ))}
               </div>
@@ -1154,7 +1258,7 @@ function App() {
               <label>Nombre<input required value={investmentForm.name} onChange={(event) => setInvestmentForm({ ...investmentForm, name: event.target.value })} placeholder="Ej. Cuenta de ahorros" /></label>
               <label>Entidad<input value={investmentForm.institution} onChange={(event) => setInvestmentForm({ ...investmentForm, institution: event.target.value })} placeholder="Banco o plataforma" /></label>
               <div className="form-row">
-                <label>Tipo<select value={investmentForm.type} onChange={(event) => setInvestmentForm({ ...investmentForm, type: event.target.value })}><option>Inversión</option><option>Ahorro</option><option>Disponible</option><option>Otro</option></select></label>
+                <label>Tipo<select value={investmentForm.type} onChange={(event) => setInvestmentForm({ ...investmentForm, type: event.target.value })}><option>Inversión</option><option>Ahorro</option><option>Otro</option></select></label>
                 <label>Estado<select value={investmentForm.status} onChange={(event) => setInvestmentForm({ ...investmentForm, status: event.target.value as Investment['status'] })}><option value="real">Dato real</option><option value="estimado">Estimado</option></select></label>
               </div>
               <label>Rendimiento anual estimado <span className="label-optional">(opcional)</span><div className="input-suffix"><input type="number" min="0" step="0.1" value={investmentForm.annualYield} onChange={(event) => setInvestmentForm({ ...investmentForm, annualYield: event.target.value })} placeholder="0" /><span>%</span></div></label>
@@ -1174,8 +1278,14 @@ function App() {
               <label>Descripción<input required value={movementForm.title} onChange={(event) => setMovementForm({ ...movementForm, title: event.target.value })} placeholder={movementForm.direction === 'income' ? 'Ej. Nómina de septiembre' : 'Ej. Pago de servicios'} /></label>
               <div className="form-row">
                 <label>Monto<input required type="number" min="1" step="1" value={movementForm.amount} onChange={(event) => setMovementForm({ ...movementForm, amount: event.target.value })} placeholder="0" /></label>
-                <label>Tipo<select value={movementForm.direction} onChange={(event) => setMovementForm({ ...movementForm, direction: event.target.value as Movement['direction'] })}><option value="income">Ingreso</option><option value="expense">Gasto</option><option value="transfer">Transferencia</option></select></label>
+                <label>Tipo<select value={movementForm.direction} onChange={(event) => setMovementForm({ ...movementForm, direction: event.target.value as Movement['direction'], investmentId: '', destinationInvestmentId: '' })}><option value="income">Ingreso</option><option value="expense">Gasto</option>                <option value="transfer">Transferencia</option><option value="withdrawal">Retiro de inversión</option></select></label>
               </div>
+                              {movementForm.direction === 'withdrawal' && <div className="form-row">
+                                <label>Retirar de<select required value={movementForm.investmentId} onChange={(event) => setMovementForm({ ...movementForm, investmentId: event.target.value })}><option value="">Selecciona una inversión</option>{currentInvestments.filter((investment) => investment.type !== 'Disponible').map((investment) => <option key={investment.id} value={investment.id}>{investment.name} · {formatCurrency(investment.value)}</option>)}</select></label>
+                                <label>Llega a<select value={movementForm.destinationInvestmentId} onChange={(event) => setMovementForm({ ...movementForm, destinationInvestmentId: event.target.value })}><option value="">No sumar a dinero disponible</option>{!currentInvestments.some((investment) => investment.type === 'Disponible') && <option value={AVAILABLE_ACCOUNT_ID}>Dinero disponible (cuenta de ahorros) · nueva</option>}{currentInvestments.filter((investment) => investment.type === 'Disponible').map((investment) => <option key={investment.id} value={investment.id}>{investment.name} · {formatCurrency(investment.value)}</option>)}</select></label>
+                              </div>}
+                              {movementForm.direction === 'expense' && <label>Pagado desde (opcional)<select value={movementForm.investmentId} onChange={(event) => setMovementForm({ ...movementForm, investmentId: event.target.value })}><option value="">No descontar de cuentas</option>{!currentInvestments.some((investment) => investment.type === 'Disponible') && <option value={AVAILABLE_ACCOUNT_ID}>Dinero disponible (cuenta de ahorros) · nueva</option>}{currentInvestments.map((investment) => <option key={investment.id} value={investment.id}>{investment.name} · {formatCurrency(investment.value)}</option>)}</select></label>}
+                              {movementForm.direction === 'transfer' && <label>Aporte a (opcional)<select value={movementForm.investmentId} onChange={(event) => setMovementForm({ ...movementForm, investmentId: event.target.value })}><option value="">No sumar a inversiones</option>{currentInvestments.map((investment) => <option key={investment.id} value={investment.id}>{investment.name} · {formatCurrency(investment.value)}</option>)}</select></label>}
               {movementForm.direction === 'income' && <label>Actividad que genera el ingreso<input required value={movementForm.incomeActivity} onChange={(event) => setMovementForm({ ...movementForm, incomeActivity: event.target.value })} list="income-activities" placeholder="Ej. Empleo" /><datalist id="income-activities">{incomeActivities.map((activity) => <option key={activity} value={activity} />)}</datalist></label>}
               <div className="form-row">
                 <label>Categoría<input value={movementForm.category} onChange={(event) => setMovementForm({ ...movementForm, category: event.target.value })} placeholder="Ej. Vivienda" /></label>
@@ -1200,9 +1310,9 @@ function App() {
                   )
                   return (
                     <div className="movement-row" key={movement.id}>
-                      <span className={`movement-icon ${movement.direction}`}>{movement.direction === 'income' ? '↙' : movement.direction === 'expense' ? '↗' : '↔'}</span>
-                      <div className="movement-details"><strong>{movement.title}</strong><span>{movement.category}{movement.direction === 'income' ? ` · Actividad: ${movement.incomeActivity?.trim() || 'Empleo'}` : ''} · {formatDate(movement.date)}{movement.time ? ` · ${movement.time}` : ''}{movement.account ? ` · ${movement.account}` : ''}{movement.investmentId ? ` · Aporte a ${investments.find((item) => item.id === movement.investmentId)?.name ?? 'inversión'}` : ''}{relatedMovement ? ` · Vinculado con ${relatedMovement.title}` : ''}</span></div>
-                      <strong className={movement.direction === 'income' ? 'movement-income' : movement.direction === 'expense' ? 'movement-expense' : 'movement-transfer'}>{movement.direction === 'income' ? '+' : movement.direction === 'expense' ? '−' : '↔'}{formatCurrency(movement.amount)}</strong>
+                      <span className={`movement-icon ${movement.direction}`}>{movement.direction === 'income' ? '↙' : movement.direction === 'expense' || movement.direction === 'withdrawal' ? '↗' : '↔'}</span>
+                      <div className="movement-details"><strong>{movement.title}</strong><span>{movement.category}{movement.direction === 'income' ? ` · Actividad: ${movement.incomeActivity?.trim() || 'Empleo'}` : ''} · {formatDate(movement.date)}{movement.time ? ` · ${movement.time}` : ''}{movement.account ? ` · ${movement.account}` : ''}{movement.investmentId ? ` · ${movement.direction === 'withdrawal' ? 'Retiro de' : movement.direction === 'expense' ? 'Pagado desde' : movement.category === WITHDRAWAL_RECEIVED_CATEGORY ? 'Recibido en' : 'Aporte a'} ${investments.find((item) => item.id === movement.investmentId)?.name ?? 'inversión'}` : ''}{relatedMovement ? ` · Vinculado con ${relatedMovement.title}` : ''}</span></div>
+                      <strong className={movement.direction === 'income' ? 'movement-income' : movement.direction === 'expense' ? 'movement-expense' : 'movement-transfer'}>{movement.direction === 'income' ? '+' : movement.direction === 'expense' ? '−' : movement.direction === 'withdrawal' ? '⇄' : '↔'}{formatCurrency(movement.amount)}</strong>
                       <button type="button" className="delete-button" aria-label={`Eliminar movimiento ${movement.title}`} onClick={() => deleteMovement(movement)}>×</button>
                     </div>
                   )

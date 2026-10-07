@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
 import type { Investment, Movement } from '../types'
+import { AVAILABLE_ACCOUNT_ID } from '../lib/investmentFlows'
 import {
   isSupportedFinancialFile,
   parseFinancialFile,
@@ -24,19 +25,104 @@ interface ReviewTransaction extends ImportedTransaction {
 const directionLabels: Record<ImportDirection, string> = {
   income: 'Ingreso',
   expense: 'Gasto',
-  transfer: 'Transferencia',
+  transfer: 'Aporte a inversión',
+  withdrawal: 'Transferencia entre cuentas (retiro)',
 }
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 }).format(amount)
 
-const formatExactCurrency = (amount: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount)
+const isAvailableAccount = (investment: Investment) => investment.type.toLocaleLowerCase() === 'disponible'
+const matchesNu = (investment: Investment) => /\b(nu|cajita)\b/i.test(`${investment.name} ${investment.institution}`)
+
+function AccountSelect({ label, value, emptyLabel, accounts, onChange, offerAvailable }: {
+  label: string
+  value?: string
+  emptyLabel: string
+  accounts: Investment[]
+  onChange: (investmentId?: string) => void
+  offerAvailable?: boolean
+}) {
+  return (
+    <label className="review-account">
+      <span>{label}</span>
+      <select value={value ?? ''} onChange={(event) => onChange(event.target.value || undefined)}>
+        <option value="">{emptyLabel}</option>
+        {offerAvailable && <option value={AVAILABLE_ACCOUNT_ID}>Dinero disponible (cuenta de ahorros) · nueva</option>}
+        {accounts.map((investment) => (
+          <option key={investment.id} value={investment.id}>{investment.name} · {formatCurrency(investment.value)}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+interface ReviewRowProps {
+  transaction: ReviewTransaction
+  index: number
+  related?: ReviewTransaction
+  investments: Investment[]
+  incomeActivities: string[]
+  onChange: (id: string, patch: Partial<ReviewTransaction>) => void
+  onRemove: (id: string) => void
+}
+
+const ReviewRow = memo(function ReviewRow({ transaction, index, related, investments, incomeActivities, onChange, onRemove }: ReviewRowProps) {
+  const { id } = transaction
+  const isFee = Boolean(transaction.relatedTransactionId)
+  const sourceAccounts = investments.filter((investment) => !isAvailableAccount(investment))
+  const availableAccounts = investments.filter(isAvailableAccount)
+
+  return (
+    <article className={`review-row${transaction.duplicate ? ' possible-duplicate' : ''}${isFee ? ' review-card-related' : ''}${transaction.include ? '' : ' excluded'}`}>
+      <div className="review-row-main">
+        <label className="review-select">
+          <input type="checkbox" checked={transaction.include} onChange={(event) => onChange(id, { include: event.target.checked })} aria-label={`Incluir movimiento ${index + 1}`} />
+          <span>{index + 1}</span>
+        </label>
+        <label>Fecha<input type="date" value={transaction.date} onChange={(event) => onChange(id, { date: event.target.value })} /></label>
+        <label>Hora<input type="time" value={transaction.time} onChange={(event) => onChange(id, { time: event.target.value })} /></label>
+        <label className="review-field-wide">Descripción<input value={transaction.title} onChange={(event) => onChange(id, { title: event.target.value })} /></label>
+        <label>Monto<input type="number" min="0.01" step="0.01" value={transaction.amount} onChange={(event) => onChange(id, { amount: event.target.value })} /></label>
+        <label>Tipo<select value={transaction.direction} onChange={(event) => {
+          const direction = event.target.value as ImportDirection
+          const usesAccount = direction === 'transfer' || direction === 'withdrawal' || direction === 'expense'
+          onChange(id, {
+            direction,
+            investmentId: usesAccount ? transaction.investmentId : undefined,
+            destinationInvestmentId: direction === 'withdrawal' ? transaction.destinationInvestmentId : undefined,
+            incomeActivity: direction === 'income' ? transaction.incomeActivity || 'Empleo' : undefined,
+          })
+        }}>{Object.entries(directionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label>Categoría<input value={transaction.category} onChange={(event) => onChange(id, { category: event.target.value })} placeholder="Categoría" /></label>
+        <span className={`confidence confidence-${transaction.confidence}`}>
+          {transaction.duplicate ? 'Posible duplicado' : transaction.confidence === 'high' ? 'Lectura clara' : transaction.confidence === 'medium' ? 'Revisar' : 'Confianza baja'}
+        </span>
+        <button type="button" className="delete-button" onClick={() => onRemove(id)} aria-label={`Quitar movimiento ${index + 1}`}>×</button>
+      </div>
+      <div className="review-row-extra">
+        {transaction.direction === 'income' && (
+          <label className="review-account"><span>Actividad</span><input required list={`import-income-activities-${id}`} value={transaction.incomeActivity ?? 'Empleo'} onChange={(event) => onChange(id, { incomeActivity: event.target.value })} placeholder="Ej. Empleo" /><datalist id={`import-income-activities-${id}`}>{incomeActivities.map((activity) => <option key={activity} value={activity} />)}</datalist></label>
+        )}
+        {transaction.direction === 'transfer' && (
+          <AccountSelect label="Aporte a" value={transaction.investmentId} emptyLabel="No sumar a inversiones" accounts={investments} offerAvailable={!availableAccounts.length} onChange={(investmentId) => onChange(id, { investmentId })} />
+        )}
+        {transaction.direction === 'withdrawal' && (
+          <>
+            <AccountSelect label="Sale de" value={transaction.investmentId} emptyLabel="No restar de inversiones" accounts={sourceAccounts} onChange={(investmentId) => onChange(id, { investmentId })} />
+            <AccountSelect label="Llega a" value={transaction.destinationInvestmentId} emptyLabel="No sumar a dinero disponible" accounts={availableAccounts} offerAvailable={!availableAccounts.length} onChange={(destinationInvestmentId) => onChange(id, { destinationInvestmentId })} />
+            <span className="review-hint">No es un ingreso: mueve dinero entre tus cuentas.</span>
+          </>
+        )}
+        {transaction.direction === 'expense' && (
+          <AccountSelect label="Pagado desde" value={transaction.investmentId} emptyLabel="No descontar de cuentas" accounts={investments} offerAvailable={!availableAccounts.length} onChange={(investmentId) => onChange(id, { investmentId })} />
+        )}
+        {related && <span className="review-hint">{isFee ? `Impuesto de ${related.title}` : `Incluye ${related.title}: ${formatCurrency(Number(related.amount))}`}</span>}
+        <span className="review-source">{transaction.sourceFile}</span>
+      </div>
+    </article>
+  )
+})
 
 export function FinancialImportDialog({
   open,
@@ -54,16 +140,52 @@ export function FinancialImportDialog({
   const [isProcessing, setIsProcessing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
 
-  if (!open) return null
-
-  const existingFingerprints = new Set(existingMovements.map((movement) =>
+  const existingFingerprints = useMemo(() => new Set(existingMovements.map((movement) =>
     transactionFingerprint({
       date: movement.date,
       amount: String(movement.amount),
       title: movement.title,
       direction: movement.direction,
     }),
-  ))
+  )), [existingMovements])
+
+  const updateTransaction = useCallback((id: string, patch: Partial<ReviewTransaction>) => {
+    setTransactions((current) => {
+      const transaction = current.find((item) => item.id === id)
+      const relatedId = transaction?.relatedTransactionId
+        ?? current.find((item) => item.relatedTransactionId === id)?.id
+      return current.map((item) => {
+        if (item.id === id) return { ...item, ...patch }
+        if (patch.include !== undefined && item.id === relatedId) return { ...item, include: patch.include }
+        return item
+      })
+    })
+  }, [])
+
+  const removeTransaction = useCallback((id: string) => {
+    setTransactions((current) => {
+      const transaction = current.find((item) => item.id === id)
+      const relatedId = transaction?.relatedTransactionId
+        ?? current.find((item) => item.relatedTransactionId === id)?.id
+      return current.filter((item) => item.id !== id && item.id !== relatedId)
+    })
+  }, [])
+
+  const relatedById = useMemo(() => {
+    const byId = new Map(transactions.map((item) => [item.id, item]))
+    const result = new Map<string, ReviewTransaction>()
+    for (const item of transactions) {
+      if (!item.relatedTransactionId) continue
+      const parent = byId.get(item.relatedTransactionId)
+      if (parent) {
+        result.set(item.id, parent)
+        result.set(parent.id, item)
+      }
+    }
+    return result
+  }, [transactions])
+
+  if (!open) return null
 
   const processFiles = async (files: File[]) => {
     const supportedFiles = files.filter(isSupportedFinancialFile)
@@ -86,12 +208,21 @@ export function FinancialImportDialog({
               || nextTransactions.some((item) => transactionFingerprint(item) === transactionFingerprint(transaction))
             const isNuCajitaContribution = transaction.direction === 'transfer'
               && /\b(cajita|bolsillo)\b/i.test(transaction.title)
+            const isNuCajitaWithdrawal = transaction.direction === 'withdrawal'
+              && /\b(cajita|bolsillo)\b/i.test(transaction.title)
+            const availableAccounts = investments.filter(isAvailableAccount)
             const matchedInvestment = isNuCajitaContribution
-              ? investments.find((investment) => /\b(nu|cajita)\b/i.test(`${investment.name} ${investment.institution}`))
+              ? investments.find(matchesNu)
+              : isNuCajitaWithdrawal
+                ? investments.find((investment) => !isAvailableAccount(investment) && matchesNu(investment))
+                : undefined
+            const destination = isNuCajitaWithdrawal
+              ? availableAccounts.find(matchesNu) ?? availableAccounts[0]
               : undefined
             nextTransactions.push({
               ...transaction,
               investmentId: matchedInvestment?.id,
+              destinationInvestmentId: destination?.id ?? (isNuCajitaWithdrawal ? AVAILABLE_ACCOUNT_ID : undefined),
               duplicate,
               include: !duplicate,
             })
@@ -111,6 +242,13 @@ export function FinancialImportDialog({
           nextErrors.push(`${file.name}: ${error instanceof Error ? error.message : 'No se pudo leer el archivo.'}`)
         }
       }
+      // Si la captura incluye un retiro, los gastos salen de ese dinero disponible salvo que se elija otra cuenta.
+      const receivedAt = nextTransactions.find((item) => item.direction === 'withdrawal' && item.destinationInvestmentId)?.destinationInvestmentId
+      if (receivedAt) {
+        for (const item of nextTransactions) {
+          if (item.direction === 'expense' && !item.investmentId) item.investmentId = receivedAt
+        }
+      }
       setTransactions((current) => [...current, ...nextTransactions])
       setErrors(nextErrors)
       setProgress(nextTransactions.length ? `${nextTransactions.length} movimiento(s) detectado(s). Revisa cada campo antes de guardar.` : '')
@@ -128,28 +266,6 @@ export function FinancialImportDialog({
     event.preventDefault()
     setIsDragging(false)
     void processFiles(Array.from(event.dataTransfer.files))
-  }
-
-  const updateTransaction = (id: string, patch: Partial<ReviewTransaction>) => {
-    setTransactions((current) => {
-      const transaction = current.find((item) => item.id === id)
-      const relatedId = transaction?.relatedTransactionId
-        ?? current.find((item) => item.relatedTransactionId === id)?.id
-      return current.map((item) => {
-        if (item.id === id) return { ...item, ...patch }
-        if (patch.include !== undefined && item.id === relatedId) return { ...item, include: patch.include }
-        return item
-      })
-    })
-  }
-
-  const removeTransaction = (id: string) => {
-    setTransactions((current) => {
-      const transaction = current.find((item) => item.id === id)
-      const relatedId = transaction?.relatedTransactionId
-        ?? current.find((item) => item.relatedTransactionId === id)?.id
-      return current.filter((item) => item.id !== id && item.id !== relatedId)
-    })
   }
 
   const selectedTransactions = transactions.filter((transaction) => transaction.include)
@@ -178,8 +294,10 @@ export function FinancialImportDialog({
           onDrop={handleDrop}
         >
           <span className="drop-icon">↑</span>
-          <strong>{isProcessing ? 'Leyendo archivo en tu dispositivo…' : 'Arrastra aquí tus documentos'}</strong>
-          <span>Imágenes, PDF, Excel, CSV, OFX, QFX o TXT · máximo 25 MB por archivo</span>
+          <div className="drop-copy">
+            <strong>{isProcessing ? 'Leyendo archivo en tu dispositivo…' : 'Arrastra aquí tus documentos'}</strong>
+            <span>Imágenes, PDF, Excel, CSV, OFX, QFX o TXT · máximo 25 MB por archivo</span>
+          </div>
           <button type="button" className="button button-light" onClick={() => inputRef.current?.click()} disabled={isProcessing}>Seleccionar archivos</button>
           <input
             ref={inputRef}
@@ -198,86 +316,22 @@ export function FinancialImportDialog({
         {transactions.length > 0 && (
           <div className="review-section">
             <div className="review-heading">
-              <div><h3>Revisa los movimientos detectados</h3><p>Confirma la descripción, el monto, la fecha y el tipo antes de guardar.</p></div>
-              <span>{selectedTransactions.length} seleccionados</span>
+              <div><h3>Revisa los movimientos detectados</h3><p>Corrige lo que el OCR haya leído mal. Los retiros de Cajita son transferencias entre cuentas, no ingresos.</p></div>
+              <span>{selectedTransactions.length} de {transactions.length} seleccionados</span>
             </div>
             <div className="review-list">
-              {transactions.map((transaction, index) => {
-                const related = transactions.find((item) =>
-                  item.id === transaction.relatedTransactionId || item.relatedTransactionId === transaction.id,
-                )
-                return (
-                <article className={`${transaction.duplicate ? 'review-card possible-duplicate' : 'review-card'}${transaction.relatedTransactionId ? ' review-card-related' : ''}`} key={transaction.id}>
-                  <div className="review-card-heading">
-                    <label className="review-select">
-                      <input type="checkbox" checked={transaction.include} onChange={(event) => updateTransaction(transaction.id, { include: event.target.checked })} />
-                      <span>Movimiento {index + 1}</span>
-                    </label>
-                    <span className={`confidence confidence-${transaction.confidence}`}>
-                      {transaction.duplicate ? 'Posible duplicado' : transaction.confidence === 'high' ? 'Lectura clara' : transaction.confidence === 'medium' ? 'Revisar' : 'Confianza baja'}
-                    </span>
-                    <button type="button" className="delete-button" onClick={() => removeTransaction(transaction.id)} aria-label={`Quitar movimiento ${index + 1}`}>×</button>
-                  </div>
-                  <div className="review-fields">
-                    <label>Fecha<input type="date" value={transaction.date} onChange={(event) => updateTransaction(transaction.id, { date: event.target.value })} /></label>
-                    <label>Hora<input type="time" value={transaction.time} onChange={(event) => updateTransaction(transaction.id, { time: event.target.value })} /></label>
-                    <label className="review-field-wide">Descripción<input value={transaction.title} onChange={(event) => updateTransaction(transaction.id, { title: event.target.value })} /></label>
-                    <label>Monto<input type="number" min="0.01" step="0.01" value={transaction.amount} onChange={(event) => updateTransaction(transaction.id, { amount: event.target.value })} /></label>
-                    <label>Tipo<select value={transaction.direction} onChange={(event) => {
-                      const direction = event.target.value as ImportDirection
-                      updateTransaction(transaction.id, {
-                        direction,
-                        investmentId: direction === 'transfer' ? transaction.investmentId : undefined,
-                        incomeActivity: direction === 'income' ? transaction.incomeActivity || 'Empleo' : undefined,
-                      })
-                    }}>{Object.entries(directionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                    <label>Categoría<input value={transaction.category} onChange={(event) => updateTransaction(transaction.id, { category: event.target.value })} placeholder="Escribe o corrige la categoría" /></label>
-                    {transaction.direction === 'income' && <label>Actividad<input required list={`import-income-activities-${transaction.id}`} value={transaction.incomeActivity ?? 'Empleo'} onChange={(event) => updateTransaction(transaction.id, { incomeActivity: event.target.value })} placeholder="Ej. Empleo" /><datalist id={`import-income-activities-${transaction.id}`}>{incomeActivities.map((activity) => <option key={activity} value={activity} />)}</datalist></label>}
-                    <span className="review-source">Archivo: {transaction.sourceFile}</span>
-                  </div>
-                  {related && <div className="related-expense-note">
-                    <span>{transaction.relatedTransactionId ? `Impuesto relacionado con ${related.title}` : 'Impuesto asociado a este pago'}</span>
-                    <strong>{related.title}</strong>
-                    <span>{formatExactCurrency(Number(related.amount))} · {related.category}</span>
-                  </div>}
-                  {transaction.direction === 'transfer' && <section className="investment-target" aria-label={`Destino del movimiento ${index + 1}`}>
-                      <div>
-                        <strong>¿A qué inversión se destinó?</strong>
-                        <span>Solo al seleccionar una cuenta se sumará este aporte a su saldo. Los ingresos y gastos no se asignan automáticamente.</span>
-                      </div>
-                      <div className="investment-target-options">
-                        <button
-                          type="button"
-                          className={`investment-target-card no-investment${transaction.investmentId ? '' : ' selected'}`}
-                          aria-pressed={!transaction.investmentId}
-                          onClick={() => updateTransaction(transaction.id, { investmentId: undefined })}
-                        >
-                          <span className="target-icon">↗</span>
-                          <span><strong>No aplica</strong><small>No sumar a inversiones</small></span>
-                        </button>
-                        {investments.map((investment) => {
-                          return (
-                            <button
-                              type="button"
-                              className={`investment-target-card${transaction.investmentId === investment.id ? ' selected' : ''}`}
-                              aria-pressed={transaction.investmentId === investment.id}
-                              key={investment.id}
-                              onClick={() => updateTransaction(transaction.id, {
-                                investmentId: investment.id,
-                                direction: transaction.direction === 'expense' ? 'transfer' : transaction.direction,
-                              })}
-                            >
-                              <span className="target-icon">◉</span>
-                              <span><strong>{investment.name}</strong><small>{investment.institution} · {formatCurrency(investment.value)}</small></span>
-                            </button>
-                          )
-                        })}
-                        {!investments.length && <p className="investment-target-empty">Primero crea una cuenta o inversión en la sección Inversiones.</p>}
-                      </div>
-                    </section>}
-                </article>
-                )
-              })}
+              {transactions.map((transaction, index) => (
+                <ReviewRow
+                  key={transaction.id}
+                  transaction={transaction}
+                  index={index}
+                  related={relatedById.get(transaction.id)}
+                  investments={investments}
+                  incomeActivities={incomeActivities}
+                  onChange={updateTransaction}
+                  onRemove={removeTransaction}
+                />
+              ))}
             </div>
           </div>
         )}

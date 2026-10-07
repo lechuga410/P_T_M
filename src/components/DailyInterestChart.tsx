@@ -1,3 +1,5 @@
+import { useChartTooltip } from './ChartTooltip'
+import type { TooltipContent } from './ChartTooltip'
 import type { DailyInterestSnapshot } from '../lib/dailyInterestHistory'
 
 interface DailyInterestChartProps {
@@ -15,6 +17,8 @@ const formatCurrency = (amount: number) =>
   }).format(amount)
 
 export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInterestChartProps) {
+  const { containerRef, show, hide, tooltip } = useChartTooltip<HTMLDivElement>()
+
   if (snapshots.length === 0) {
     return <p className="daily-interest-empty">El historial diario aparecerá aquí al completarse el primer día de seguimiento.</p>
   }
@@ -52,7 +56,7 @@ export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInter
   }).filter((label) => label !== undefined)
 
   return (
-    <div className="daily-interest-chart">
+    <div className="daily-interest-chart" ref={containerRef}>
       <div className="daily-interest-chart-axis">
         <span>{formatCurrency(max)}</span>
         <span>{formatCurrency(0)}</span>
@@ -76,6 +80,16 @@ export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInter
           const x = xForDate(snapshot.date) - barWidth / 2
           const height = Math.max(snapshot.interest > 0 ? 2 : 0, (snapshot.interest / chartMax) * 130)
           const y = 165 - height
+          const content: TooltipContent = {
+            title: fullDate.format(new Date(`${snapshot.date}T12:00:00`)),
+            valueLabel: 'Interés estimado del día',
+            value: formatCurrency(snapshot.interest),
+            rows: [
+              { label: 'Saldo al cierre', value: formatCurrency(snapshot.closingBalance), color: '#79ceb7' },
+              ...(snapshot.contributions ? [{ label: 'Aportes del día', value: formatCurrency(snapshot.contributions), color: '#d49a4d' }] : []),
+            ],
+            badges: snapshot.anchoredToConfirmation ? ['Incluye corte confirmado'] : undefined,
+          }
           return (
             <g key={`${snapshot.investmentId}-${snapshot.date}`}>
               <rect
@@ -87,9 +101,12 @@ export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInter
                 className="daily-interest-bar"
                 tabIndex={0}
                 aria-label={`${snapshot.date}: interés estimado ${formatCurrency(snapshot.interest)}, capital al cierre ${formatCurrency(snapshot.closingBalance)}`}
-              >
-                <title>{`${fullDate.format(new Date(`${snapshot.date}T12:00:00`))} · Interés estimado del día: ${formatCurrency(snapshot.interest)} · Saldo al cierre: ${formatCurrency(snapshot.closingBalance)}${snapshot.contributions ? ` · Aportes del día: ${formatCurrency(snapshot.contributions)}` : ''}${snapshot.anchoredToConfirmation ? ' · Incluye corte confirmado' : ''}`}</title>
-              </rect>
+                onMouseEnter={show(content)}
+                onMouseMove={show(content)}
+                onMouseLeave={hide}
+                onFocus={show(content)}
+                onBlur={hide}
+              />
             </g>
           )
         })}
@@ -101,6 +118,7 @@ export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInter
           </span>
         ))}
       </div>
+      {tooltip}
     </div>
   )
 }

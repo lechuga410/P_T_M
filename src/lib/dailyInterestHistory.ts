@@ -1,4 +1,5 @@
 import type { Investment, Movement } from '../types'
+import { isInvestmentFlow, signedFlowAmount } from './investmentFlows'
 
 export const DAILY_INTEREST_STORAGE_KEY = 'rastreo-patrimonial-daily-interest-v1'
 
@@ -93,8 +94,8 @@ export function appendDailyInterestSnapshots(
   for (const investment of investments) {
     if (investment.annualYield <= 0) continue
     const investmentMovements = movements
-      .filter((movement) => movement.investmentId === investment.id && movement.direction === 'transfer')
-      .map((movement) => ({ timestamp: localTimestamp(movement.date, movement.time), amount: movement.amount }))
+      .filter((movement) => isInvestmentFlow(movement, investment))
+      .map((movement) => ({ timestamp: localTimestamp(movement.date, movement.time), amount: signedFlowAmount(movement) }))
       .sort((left, right) => left.timestamp - right.timestamp)
     const investmentSnapshots = [...snapshots.values()]
       .filter((snapshot) => snapshot.investmentId === investment.id)
@@ -309,8 +310,8 @@ export function estimateInvestmentBalanceNow(
   now = new Date(),
 ): number {
   const contributions = movements
-    .filter((movement) => movement.investmentId === investment.id && movement.direction === 'transfer')
-    .map((movement) => ({ timestamp: localTimestamp(movement.date, movement.time), amount: movement.amount }))
+    .filter((movement) => isInvestmentFlow(movement, investment))
+    .map((movement) => ({ timestamp: localTimestamp(movement.date, movement.time), amount: signedFlowAmount(movement) }))
     .sort((left, right) => left.timestamp - right.timestamp)
   const lastSnapshot = snapshots
     .filter((snapshot) => snapshot.investmentId === investment.id)

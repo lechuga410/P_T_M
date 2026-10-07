@@ -1,3 +1,4 @@
+import { useChartTooltip } from './ChartTooltip'
 interface LongTermProjectionChartProps {
   points: Array<{ years: number; balance: number }>
   currentBalance: number
@@ -11,6 +12,7 @@ const formatCurrency = (amount: number) =>
   }).format(amount)
 
 export function LongTermProjectionChart({ points, currentBalance }: LongTermProjectionChartProps) {
+  const { containerRef, show, hide, tooltip } = useChartTooltip<HTMLDivElement>()
   const chartPoints = [{ years: 0, balance: currentBalance }, ...points]
   const maxYears = Math.max(...chartPoints.map((point) => point.years), 1)
   const maxBalance = Math.max(...chartPoints.map((point) => point.balance), 1)
@@ -22,7 +24,7 @@ export function LongTermProjectionChart({ points, currentBalance }: LongTermProj
   const area = `20,170 ${line} 980,170`
 
   return (
-    <div className="long-term-projection-chart">
+    <div className="long-term-projection-chart chart-tooltip-host" ref={containerRef}>
       <div className="long-term-projection-axis">
         <span>{formatCurrency(maxBalance)}</span>
         <span>{formatCurrency(0)}</span>
@@ -44,7 +46,20 @@ export function LongTermProjectionChart({ points, currentBalance }: LongTermProj
         ))}
         <polygon points={area} fill="url(#long-term-projection-fill)" />
         <polyline points={line} className="long-term-projection-line" />
-        {coordinates.slice(1).map((point, index) => (
+        {coordinates.slice(1).map((point, index) => {
+          const target = chartPoints[index + 1]
+          const content = {
+            title: `A ${target.years} años`,
+            subtitle: 'Proyección con EA constante, sin nuevos aportes',
+            valueLabel: 'Saldo estimado',
+            value: formatCurrency(target.balance),
+            rows: [
+              { label: 'Saldo actual', value: formatCurrency(currentBalance), color: '#a8c4ff' },
+              { label: 'Crecimiento', value: formatCurrency(target.balance - currentBalance), color: '#79ceb7' },
+              { label: 'Multiplicador', value: `x${(target.balance / Math.max(currentBalance, 1)).toFixed(2)}`, color: '#d49a4d' },
+            ],
+          }
+          return (
           <circle
             key={chartPoints[index + 1].years}
             cx={point.x}
@@ -52,11 +67,15 @@ export function LongTermProjectionChart({ points, currentBalance }: LongTermProj
             r="4"
             className="long-term-projection-dot"
             tabIndex={0}
+            onMouseEnter={show(content)}
+            onMouseMove={show(content)}
+            onMouseLeave={hide}
+            onFocus={show(content)}
+            onBlur={hide}
             aria-label={`${chartPoints[index + 1].years} años: ${formatCurrency(chartPoints[index + 1].balance)}`}
-          >
-            <title>{`A ${chartPoints[index + 1].years} años · Saldo estimado: ${formatCurrency(chartPoints[index + 1].balance)} · Crecimiento desde hoy: ${formatCurrency(chartPoints[index + 1].balance - currentBalance)}`}</title>
-          </circle>
-        ))}
+          />
+          )
+        })}
       </svg>
       <div className="long-term-projection-years">
         {chartPoints.map((point) => {
@@ -82,6 +101,7 @@ export function LongTermProjectionChart({ points, currentBalance }: LongTermProj
           </article>
         ))}
       </div>
+      {tooltip}
     </div>
   )
 }

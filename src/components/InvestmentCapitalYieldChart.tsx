@@ -1,3 +1,4 @@
+import { useChartTooltip } from './ChartTooltip'
 import type { InvestmentHistoryPoint } from '../lib/investmentPerformance'
 
 interface InvestmentCapitalYieldChartProps {
@@ -12,6 +13,7 @@ const formatCurrency = (amount: number) =>
   }).format(amount)
 
 export function InvestmentCapitalYieldChart({ points }: InvestmentCapitalYieldChartProps) {
+  const { containerRef, show, hide, tooltip } = useChartTooltip<HTMLDivElement>()
   if (points.length === 0) {
     return <p className="capital-yield-empty">No hay datos para el periodo seleccionado.</p>
   }
@@ -29,7 +31,7 @@ export function InvestmentCapitalYieldChart({ points }: InvestmentCapitalYieldCh
   const latest = points[points.length - 1]
 
   return (
-    <div className="capital-yield-chart">
+    <div className="capital-yield-chart chart-tooltip-host" ref={containerRef}>
       <div className="capital-yield-legend">
         <span><i className="capital-yield-key principal" />Capital aportado <strong>{formatCurrency(latest.principal)}</strong></span>
         <span><i className="capital-yield-key earned" />Rendimiento <strong>{formatCurrency(latest.earned)}</strong></span>
@@ -48,16 +50,44 @@ export function InvestmentCapitalYieldChart({ points }: InvestmentCapitalYieldCh
         ))}
         <polyline points={principalLine} className="capital-yield-line principal" />
         <polyline points={earnedLine} className="capital-yield-line earned" />
-        {coordinates.map((point, index) => (
-          <g key={`${points[index].timestamp}-${index}`}>
-            <circle cx={point.x} cy={point.principalY} r="3" className="capital-yield-dot principal">
-              <title>{`${points[index].label} · Capital aportado: ${formatCurrency(points[index].principal)}`}</title>
-            </circle>
-            <circle cx={point.x} cy={point.earnedY} r="3" className="capital-yield-dot earned">
-              <title>{`${points[index].label} · Rendimiento: ${formatCurrency(points[index].earned)}`}</title>
-            </circle>
-          </g>
-        ))}
+        {coordinates.map((point, index) => {
+          const current = points[index]
+          const content = {
+            title: current.label,
+            valueLabel: 'Saldo total',
+            value: formatCurrency(current.total),
+            rows: [
+              { label: 'Capital aportado', value: formatCurrency(current.principal), color: '#337fa2' },
+              { label: 'Rendimiento', value: formatCurrency(current.earned), color: '#d49a4d' },
+              { label: 'Rendimiento / capital', value: `${(current.principal > 0 ? (current.earned / current.principal) * 100 : 0).toFixed(3)} %`, color: '#79ceb7' },
+            ],
+          }
+          const handlers = {
+            onMouseEnter: show(content),
+            onMouseMove: show(content),
+            onMouseLeave: hide,
+            onFocus: show(content),
+            onBlur: hide,
+          }
+          return (
+            <g key={`${current.timestamp}-${index}`}>
+              <line x1={point.x} x2={point.x} y1="30" y2="162" className="chart-guide chart-guide-hover" />
+              <circle cx={point.x} cy={point.principalY} r="3" className="capital-yield-dot principal" />
+              <circle cx={point.x} cy={point.earnedY} r="3" className="capital-yield-dot earned" />
+              <rect
+                x={point.x - Math.max(6, 488 / points.length)}
+                y="0"
+                width={Math.max(12, 976 / points.length)}
+                height="190"
+                fill="transparent"
+                className="chart-hit"
+                tabIndex={0}
+                aria-label={`${current.label}: capital ${formatCurrency(current.principal)}, rendimiento ${formatCurrency(current.earned)}`}
+                {...handlers}
+              />
+            </g>
+          )
+        })}
       </svg>
       <div className="capital-yield-scales bottom">
         <span>{formatCurrency(0)}</span>
@@ -67,6 +97,7 @@ export function InvestmentCapitalYieldChart({ points }: InvestmentCapitalYieldCh
           <span key={`${point.timestamp}-${point.label}`}>{point.label}</span>
         ))}
       </div>
+      {tooltip}
     </div>
   )
 }

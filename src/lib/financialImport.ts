@@ -1,7 +1,7 @@
 import { unzipSync } from 'fflate'
 import type { Worker } from 'tesseract.js'
 
-export type ImportDirection = 'income' | 'expense' | 'transfer'
+export type ImportDirection = 'income' | 'expense' | 'transfer' | 'withdrawal'
 export type ImportConfidence = 'high' | 'medium' | 'low'
 
 export interface ImportedTransaction {
@@ -17,6 +17,7 @@ export interface ImportedTransaction {
   account: string
   annualYield: string
   investmentId?: string
+  destinationInvestmentId?: string
   relatedTransactionId?: string
   confidence: ImportConfidence
   sourceFile: string
@@ -149,6 +150,9 @@ function classify(text: string, amount: number): { direction: ImportDirection; c
   if (/\b(gmf|4x1000|gravamen (?:a los )?movimientos financieros|impuesto financiero)\b/.test(description)) {
     return { direction: 'expense', category: 'Impuesto', confidence: 'high' }
   }
+  if (/\b(retiraste|retiro|sacaste|retirar)\b.*\b(cajita|bolsillo|inversion)\b/.test(description)) {
+    return { direction: 'withdrawal', category: 'Retiro de inversión', confidence: 'high' }
+  }
   if (/\b(transferencia (?:entre|a|hacia|desde) (?:mis )?(?:cuentas|ahorros|cajita)|traslado (?:entre|a|hacia)|transfer to savings|internal transfer)\b/.test(description)) {
     return { direction: 'transfer', category: 'Transferencia propia', confidence: 'high' }
   }
@@ -158,7 +162,7 @@ function classify(text: string, amount: number): { direction: ImportDirection; c
   if (/\b(nomina|sueldo|salario|payroll|salary|abono|consignacion|deposito recibido|recibiste|interes(?:es)? abonado|rendimiento(?:s)? abonado)\b/.test(description)) {
     return { direction: 'income', category: /\b(nomina|sueldo|salario|payroll|salary)\b/.test(description) ? 'Salario' : 'Ingreso', confidence: 'high' }
   }
-  if (/\b(pago|compra|retiro|debito|deuda|cuota|comision|cargo|withdrawal|payment|purchase|fee)\b/.test(description) || amount < 0) {
+  if (/\b(enviaste|pagaste|compraste|pago|compra|retiro|debito|deuda|cuota|comision|cargo|withdrawal|payment|purchase|fee)\b/.test(description) || amount < 0) {
     return { direction: 'expense', category: /\b(deuda|credito|loan|credit card|tarjeta)\b/.test(description) ? 'Pago de deuda' : 'Gasto', confidence: 'medium' }
   }
   if (/\b(transferencia|traslado|transfer)\b/.test(description)) {
@@ -364,8 +368,14 @@ function parseTextLines(text: string, sourceFile: string, referenceYear: number)
 const nuMoneyPattern = /[+-]?\s*\$?\s*(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[,.]\d{2}))/g
 const nuMonthPattern = /\b\d{1,2}\s*(?:de\s+)?(?:ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|sep(?:t(?:iembre)?)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?)\.?(?:\s+(?:de\s+)?20\d{2})?\b/gi
 
-function parseNuRow(text: string, sourceFile: string, referenceYear: number, confidence: number): ImportedTransaction[] {
-  const date = parseDate(text, referenceYear)
+interface NuRowOptions {
+  fallbackDate?: string
+  sign?: 'positive' | 'negative'
+}
+
+function parseNuRow(text: string, sourceFile: string, referenceYear: number, confidence: number, options: NuRowOptions = {}): ImportedTransaction[] {
+  const parsedDate = parseDate(text, referenceYear)
+  const date = parsedDate || options.fallbackDate
   if (!date) return []
 
   const time = parseTime(text)
@@ -380,12 +390,16 @@ function parseNuRow(text: string, sourceFile: string, referenceYear: number, con
     .replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)(?:[:.]([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)?\b/i, ' ')
     .replace(nuMoneyPattern, ' ')
     .replace(/\b\d+\s*[x×]\s*(?:mil|1000)\b/gi, ' ')
-    .replace(/[$+−\-:|•·.…_]+/g, ' ')
+    .replace(/\bBre[\s-]*B\b/gi, ' ')
+    .replace(/[$+\u2212\-:|\u2022\u00b7.\u2026_\u00ab\u00bb\u2014\u2013]+/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/(?:\s+[^\p{L}\p{N}]|\s+[A-Za-z])+$/u, '')
     .trim()
   const title = /\bagregaste\b/.test(normalizedText) && /\bcajita\b/.test(normalizedText)
     ? 'Agregaste dinero a tu Cajita'
-    : /\brecibiste\b.*\bbancolombia\b/.test(normalizedText)
+    : /\bretiraste\b/.test(normalizedText) && /\bcajita\b/.test(normalizedText)
+      ? 'Retiraste dinero de tu Cajita'
+      : /\brecibiste\b.*\bbancolombia\b/.test(normalizedText)
       ? 'Recibiste de Bancolombia'
       : /\bpagaste\b.*\baddi\b/.test(normalizedText)
         ? 'Pagaste en P.A. ADDI'
@@ -400,8 +414,13 @@ function parseNuRow(text: string, sourceFile: string, referenceYear: number, con
   const mainAmount = money.find((candidate) => !feeIndexes.has(candidate.index)) ?? feeAmounts[0]
   if (!mainAmount) return []
 
-  const classified = classify(title, mainAmount.amount)
-  const rowConfidence: ImportConfidence = confidence >= 82 && time ? 'high' : confidence >= 55 ? 'medium' : 'low'
+  const signedAmount = options.sign === 'positive'
+    ? Math.abs(mainAmount.amount)
+    : options.sign === 'negative'
+      ? -Math.abs(mainAmount.amount)
+      : mainAmount.amount
+  const classified = classify(title, signedAmount)
+  const rowConfidence: ImportConfidence = !parsedDate ? 'low' : confidence >= 82 && time ? 'high' : confidence >= 55 ? 'medium' : 'low'
   const transactions: ImportedTransaction[] = [{
     id: newId(),
     date,
@@ -448,7 +467,7 @@ function parseNuRow(text: string, sourceFile: string, referenceYear: number, con
 function findNuRowBounds(context: CanvasRenderingContext2D, width: number, height: number): number[] {
   const { data } = context.getImageData(0, 0, width, height)
   const dividerRows: number[] = []
-  for (let y = Math.floor(height * 0.18); y < height * 0.94; y += 1) {
+  for (let y = Math.floor(height * 0.03); y < height * 0.97; y += 1) {
     let grayPixels = 0
     let sampledPixels = 0
     for (let x = 0; x < width; x += 4) {
@@ -457,7 +476,7 @@ function findNuRowBounds(context: CanvasRenderingContext2D, width: number, heigh
       if (alpha > 220 && red > 205 && red < 250 && Math.abs(red - green) < 12 && Math.abs(green - blue) < 12) grayPixels += 1
       sampledPixels += 1
     }
-    if (grayPixels / sampledPixels > 0.78) dividerRows.push(y)
+    if (grayPixels / sampledPixels > 0.7) dividerRows.push(y)
   }
 
   const dividers: number[] = []
@@ -465,12 +484,41 @@ function findNuRowBounds(context: CanvasRenderingContext2D, width: number, heigh
     let end = index
     while (end + 1 < dividerRows.length && dividerRows[end + 1] <= dividerRows[end] + 2) end += 1
     const center = Math.round((dividerRows[index] + dividerRows[end]) / 2)
-    if (center > height * 0.2 && center < height * 0.92) dividers.push(center)
+    const thickness = dividerRows[end] - dividerRows[index] + 1
+    if (thickness <= Math.max(8, height * 0.01) && center > height * 0.03 && center < height * 0.97) dividers.push(center)
     index = end + 1
   }
   const bounds = [0, ...dividers, height].filter((value, index, all) => index === 0 || value - all[index - 1] >= 55)
   if (bounds[bounds.length - 1] !== height) bounds.push(height)
-  return bounds.length >= 3 && bounds.length <= 6 ? bounds : []
+  return bounds.length >= 3 && bounds.length <= 60 ? bounds : []
+}
+
+// Binariza la fila para que el texto gris claro de los movimientos pendientes también se lea.
+function enhanceRow(context: CanvasRenderingContext2D, width: number, height: number, threshold = 215) {
+  const image = context.getImageData(0, 0, width, height)
+  const { data } = image
+  for (let offset = 0; offset < data.length; offset += 4) {
+    const luminance = data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114
+    const value = luminance < threshold ? 0 : 255
+    data[offset] = value
+    data[offset + 1] = value
+    data[offset + 2] = value
+    data[offset + 3] = 255
+  }
+  context.putImageData(image, 0, 0)
+}
+
+// En Nu los montos positivos van en verde y los demás en gris/negro.
+function hasGreenAmount(context: CanvasRenderingContext2D, left: number, top: number, width: number, height: number) {
+  const { data } = context.getImageData(left, top, width, height)
+  let green = 0
+  for (let offset = 0; offset < data.length; offset += 4) {
+    const red = data[offset]
+    const greenChannel = data[offset + 1]
+    const blue = data[offset + 2]
+    if (greenChannel > red + 40 && greenChannel > blue + 20 && greenChannel < 190) green += 1
+  }
+  return green > 25
 }
 
 async function parseNuImage(
@@ -479,7 +527,7 @@ async function parseNuImage(
   referenceYear: number,
   singleBlockMode: NonNullable<Parameters<Worker['setParameters']>[0]>['tessedit_pageseg_mode'],
   onProgress: (progress: ImportProgress) => void,
-): Promise<ImportedTransaction[]> {
+): Promise<{ transactions: ImportedTransaction[]; unreadRows: number }> {
   const image = await createImageBitmap(file)
   try {
     const source = globalThis.document.createElement('canvas')
@@ -489,37 +537,82 @@ async function parseNuImage(
     if (!sourceContext) throw new Error('El navegador no pudo preparar la imagen para OCR.')
     sourceContext.drawImage(image, 0, 0)
     const bounds = findNuRowBounds(sourceContext, source.width, source.height)
-    if (!bounds.length) return []
+    if (!bounds.length) return { transactions: [], unreadRows: 0 }
 
     await worker.setParameters({ tessedit_pageseg_mode: singleBlockMode })
-    const transactions: ImportedTransaction[] = []
+    const rowResults: { text: string; confidence: number; sign: 'positive' | 'negative' }[] = []
     const rows = bounds.length - 1
     for (let index = 0; index < rows; index += 1) {
       const top = bounds[index] + 4
       const bottom = bounds[index + 1] - 4
       if (bottom <= top) continue
       onProgress({ message: `Leyendo movimiento Nu ${index + 1} de ${rows}…`, percent: Math.round(((index + 1) / rows) * 90) })
-      const crop = globalThis.document.createElement('canvas')
       const left = Math.round(source.width * 0.2)
+      const sign = hasGreenAmount(sourceContext, Math.round(source.width * 0.55), top, Math.round(source.width * 0.45), bottom - top)
+        ? 'positive'
+        : 'negative'
+      const crop = globalThis.document.createElement('canvas')
       const scale = 1.5
       crop.width = Math.round((source.width - left) * scale)
       crop.height = Math.round((bottom - top) * scale)
-      const cropContext = crop.getContext('2d')
+      const cropContext = crop.getContext('2d', { willReadFrequently: true })
       if (!cropContext) throw new Error('El navegador no pudo preparar una fila de movimientos para OCR.')
       cropContext.drawImage(source, left, top, source.width - left, bottom - top, 0, 0, crop.width, crop.height)
-      const result = await worker.recognize(crop)
-      transactions.push(...parseNuRow(result.data.text, file.name, referenceYear, result.data.confidence))
+      let result = await worker.recognize(crop)
+      const complete = (text: string) => Boolean(parseDate(text, referenceYear)) && [...text.matchAll(nuMoneyPattern)].length > 0
+      if (!complete(result.data.text)) {
+        const original = globalThis.document.createElement('canvas')
+        original.width = crop.width
+        original.height = crop.height
+        original.getContext('2d')?.drawImage(crop, 0, 0)
+        for (const threshold of [215, 235, 245, 190]) {
+          cropContext.drawImage(original, 0, 0)
+          enhanceRow(cropContext, crop.width, crop.height, threshold)
+          const enhanced = await worker.recognize(crop)
+          const better = complete(enhanced.data.text) || (!complete(result.data.text) && enhanced.data.confidence > result.data.confidence)
+          if (better) result = enhanced
+          if (complete(result.data.text)) break
+        }
+        original.width = 0
+        original.height = 0
+      }
+      if (![...result.data.text.matchAll(nuMoneyPattern)].length) {
+        // Los títulos largos empujan el monto: se lee aparte la columna derecha de la fila.
+        const amountLeft = Math.round(source.width * 0.6)
+        const amountCanvas = globalThis.document.createElement('canvas')
+        amountCanvas.width = (source.width - amountLeft) * 2
+        amountCanvas.height = Math.round((bottom - top) * 0.55) * 2
+        const amountContext = amountCanvas.getContext('2d', { willReadFrequently: true })
+        if (amountContext) {
+          amountContext.drawImage(source, amountLeft, top, source.width - amountLeft, Math.round((bottom - top) * 0.55), 0, 0, amountCanvas.width, amountCanvas.height)
+          enhanceRow(amountContext, amountCanvas.width, amountCanvas.height, 225)
+          const amountText = (await worker.recognize(amountCanvas)).data.text
+          if ([...amountText.matchAll(nuMoneyPattern)].length) result = { ...result, data: { ...result.data, text: result.data.text + '\n' + amountText } }
+        }
+        amountCanvas.width = 0
+        amountCanvas.height = 0
+      }      rowResults.push({ text: result.data.text, confidence: result.data.confidence, sign })
       crop.width = 0
       crop.height = 0
     }
     source.width = 0
     source.height = 0
-    return transactions
+
+    // Las filas sin fecha legible heredan la fecha de la fila más cercana en vez de perderse.
+    const dates = rowResults.map((row) => parseDate(row.text, referenceYear))
+    const transactions: ImportedTransaction[] = []
+    let unreadRows = 0
+    rowResults.forEach((row, index) => {
+      const fallbackDate = dates[index] || dates.slice(index + 1).find(Boolean) || dates.slice(0, index).reverse().find(Boolean)
+      const parsed = parseNuRow(row.text, file.name, referenceYear, row.confidence, { fallbackDate: fallbackDate || undefined, sign: row.sign })
+      if (!parsed.length) unreadRows += 1
+      transactions.push(...parsed)
+    })
+    return { transactions, unreadRows }
   } finally {
     image.close()
   }
 }
-
 function parseOfxRowsAsFallback(text: string, sourceFile: string, referenceYear: number): ImportedTransaction[] {
   const tagged = parseOfx(text, sourceFile, referenceYear)
   return tagged.length ? tagged : parseTextLines(text, sourceFile, referenceYear)
@@ -643,6 +736,7 @@ export async function parseFinancialFile(
   const extension = file.name.split('.').pop()?.toLocaleLowerCase() ?? ''
   let transactions: ImportedTransaction[] = []
   let usedOcr = false
+  let unreadNuRows = 0
   if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff'].includes(extension)) {
     const { createWorker, PSM } = await import('tesseract.js')
     const worker = await createWorker('spa', 1, {
@@ -651,7 +745,9 @@ export async function parseFinancialFile(
       },
     })
     try {
-      transactions = await parseNuImage(file, worker, referenceYear, PSM.SINGLE_BLOCK, onProgress)
+      const nuResult = await parseNuImage(file, worker, referenceYear, PSM.SINGLE_BLOCK, onProgress)
+      transactions = nuResult.transactions
+      if (nuResult.unreadRows) unreadNuRows = nuResult.unreadRows
       if (!transactions.length) {
         await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO })
         const result = await worker.recognize(file)
@@ -678,6 +774,7 @@ export async function parseFinancialFile(
 
   const warnings: string[] = []
   if (usedOcr) warnings.push('La lectura OCR puede confundir cifras o separadores. Revisa especialmente fechas, montos y movimientos con baja confianza.')
+  if (unreadNuRows) warnings.push(`${unreadNuRows} fila(s) de la captura no se pudieron leer. Agrégalas manualmente en Movimientos o sube una captura más nítida.`)
   if (!transactions.length) {
     warnings.push('No se identificaron movimientos con suficiente información en este archivo. Prueba con un extracto más nítido o en CSV/OFX.')
   }

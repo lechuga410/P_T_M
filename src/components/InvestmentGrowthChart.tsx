@@ -1,3 +1,4 @@
+import { useChartTooltip } from './ChartTooltip'
 import type { InvestmentTrendPoint } from '../lib/investmentPerformance'
 
 interface InvestmentGrowthChartProps {
@@ -12,6 +13,7 @@ const formatCurrency = (amount: number) =>
   }).format(amount)
 
 export function InvestmentGrowthChart({ points }: InvestmentGrowthChartProps) {
+  const { containerRef, show, hide, tooltip } = useChartTooltip<HTMLDivElement>()
   if (points.length === 0) {
     return <p className="capital-yield-empty">No hay datos para el periodo seleccionado.</p>
   }
@@ -28,7 +30,7 @@ export function InvestmentGrowthChart({ points }: InvestmentGrowthChartProps) {
   const labelStep = Math.max(1, Math.ceil((points.length - 1) / 6))
 
   return (
-    <div className="investment-growth-chart">
+    <div className="investment-growth-chart chart-tooltip-host" ref={containerRef}>
       <div className="investment-chart-values">
         <span>{formatCurrency(min)}</span>
         <strong>{formatCurrency(max)}</strong>
@@ -43,23 +45,50 @@ export function InvestmentGrowthChart({ points }: InvestmentGrowthChartProps) {
         {[30, 75, 120, 165].map((y) => <line key={y} x1="12" x2="988" y1={y} y2={y} className="investment-chart-gridline" />)}
         <polygon points={area} fill="url(#investment-chart-fill)" />
         <polyline points={line} className="investment-chart-line" />
-        {coordinates.map((point, index) => (
-          <circle
-            key={`${points[index].label}-${index}`}
-            cx={point.x}
-            cy={point.y}
-            r={index === coordinates.length - 1 ? 5 : 3}
-            className={index === coordinates.length - 1 ? 'investment-chart-dot current' : 'investment-chart-dot'}
-          >
-            <title>{`${points[index].label}: ${formatCurrency(points[index].value)}`}</title>
-          </circle>
-        ))}
+        {coordinates.map((point, index) => {
+          const previous = points[index - 1]
+          const delta = previous ? points[index].value - previous.value : 0
+          const content = {
+            title: points[index].label,
+            valueLabel: 'Capital estimado',
+            value: formatCurrency(points[index].value),
+            rows: previous
+              ? [{ label: 'Variación vs. punto anterior', value: `${delta >= 0 ? '+' : ''}${formatCurrency(delta)}`, color: delta >= 0 ? '#79ceb7' : '#e08a8a' }]
+              : undefined,
+            badges: index === coordinates.length - 1 ? ['Último punto'] : undefined,
+          }
+          return (
+            <g key={`${points[index].label}-${index}`}>
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r={index === coordinates.length - 1 ? 5 : 3}
+                className={index === coordinates.length - 1 ? 'investment-chart-dot current' : 'investment-chart-dot'}
+              />
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r="11"
+                fill="transparent"
+                className="chart-hit"
+                tabIndex={0}
+                aria-label={`${points[index].label}: ${formatCurrency(points[index].value)}`}
+                onMouseEnter={show(content)}
+                onMouseMove={show(content)}
+                onMouseLeave={hide}
+                onFocus={show(content)}
+                onBlur={hide}
+              />
+            </g>
+          )
+        })}
       </svg>
       <div className="investment-chart-labels">
         {points.filter((_, index) => index % labelStep === 0 || index === points.length - 1).map((point, index) => (
           <span key={`${point.label}-${index}`}>{point.label}</span>
         ))}
       </div>
+      {tooltip}
     </div>
   )
 }

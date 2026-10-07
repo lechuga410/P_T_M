@@ -1,4 +1,5 @@
 import type { Investment, Movement } from '../types'
+import { isInvestmentFlow, signedFlowAmount } from './investmentFlows'
 
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -34,6 +35,7 @@ interface InvestmentLot {
   amount: number
   principal: number
   start: number
+  withdrawal?: boolean
 }
 
 function localTimestamp(date: string, time?: string): number {
@@ -47,11 +49,13 @@ function valueAfterYield(amount: number, annualYield: number, start: number, end
   return Number.isFinite(value) ? value : amount
 }
 
+function flowLot(movement: Movement, start: number): InvestmentLot {
+  return { amount: movement.amount, principal: movement.amount, start, withdrawal: signedFlowAmount(movement) < 0 }
+}
+
 function buildLots(investment: Investment, movements: Movement[]) {
-  const contributions = movements.filter(
-    (movement) => movement.investmentId === investment.id && movement.direction === 'transfer',
-  )
-  const recordedContributions = contributions.reduce((sum, movement) => sum + movement.amount, 0)
+  const contributions = movements.filter((movement) => isInvestmentFlow(movement, investment))
+  const recordedContributions = contributions.reduce((sum, movement) => sum + signedFlowAmount(movement), 0)
   const openingAt = localTimestamp(investment.date, investment.openingTime)
   const verifiedAt = investment.verifiedAt ? new Date(investment.verifiedAt).getTime() : Number.NaN
   const verifiedBalance = investment.verifiedBalance
@@ -66,7 +70,7 @@ function buildLots(investment: Investment, movements: Movement[]) {
       ? investment.verifiedPrincipal
       : contributions
         .filter((movement) => localTimestamp(movement.date, movement.time) <= verifiedAt)
-        .reduce((sum, movement) => sum + movement.amount, 0)
+        .reduce((sum, movement) => sum + signedFlowAmount(movement), 0)
     const lots: InvestmentLot[] = [{
       amount: verifiedBalance,
       principal: principalAtVerification,
@@ -75,7 +79,7 @@ function buildLots(investment: Investment, movements: Movement[]) {
 
     for (const movement of contributions) {
       const start = localTimestamp(movement.date, movement.time)
-      if (start > verifiedAt) lots.push({ amount: movement.amount, principal: movement.amount, start })
+      if (start > verifiedAt) lots.push(flowLot(movement, start))
     }
     return lots
   }
@@ -86,7 +90,7 @@ function buildLots(investment: Investment, movements: Movement[]) {
     : []
 
   for (const movement of contributions) {
-    lots.push({ amount: movement.amount, principal: movement.amount, start: localTimestamp(movement.date, movement.time) })
+    lots.push(flowLot(movement, localTimestamp(movement.date, movement.time)))
   }
 
   return lots
@@ -97,19 +101,27 @@ function accruedAt(
   investment: Investment,
   at: number,
 ): { principal: number; earned: number; currentValue: number } {
+  let value = 0
   let principal = 0
-  let earned = 0
+  let cursor = 0
 
-  for (const lot of lots) {
-    if (lot.start > at) continue
-    const currentLotValue = valueAfterYield(lot.amount, investment.annualYield, lot.start, at)
-    principal += lot.principal
-    earned += currentLotValue - lot.principal
+  const events = lots.filter((lot) => lot.start <= at).sort((left, right) => left.start - right.start)
+  for (const lot of events) {
+    value = cursor ? valueAfterYield(value, investment.annualYield, cursor, lot.start) : value
+    cursor = lot.start
+    if (lot.withdrawal) {
+      const withdrawn = Math.min(lot.amount, value)
+      value -= withdrawn
+      principal = Math.max(principal - withdrawn, 0)
+    } else {
+      value += lot.amount
+      principal += lot.principal
+    }
   }
+  if (cursor) value = valueAfterYield(value, investment.annualYield, cursor, at)
 
-  return { principal, earned, currentValue: principal + earned }
+  return { principal, earned: value - principal, currentValue: value }
 }
-
 function addHistoryTimestamps(timestamps: Set<number>, startAt: number, endAt: number): void {
   const duration = endAt - startAt
   if (duration <= 62 * DAY_MS) {
@@ -147,7 +159,7 @@ export function calculateInvestmentHistory(
   if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || startAt >= endAt) return []
 
   const contributions = movements
-    .filter((movement) => movement.investmentId === investment.id && movement.direction === 'transfer')
+    .filter((movement) => isInvestmentFlow(movement, investment))
     .map((movement) => ({ movement, timestamp: movementTimestamp(movement) }))
     .sort((left, right) => left.timestamp - right.timestamp)
   const hasVerification = hasVerifiedBalance(investment)
@@ -157,12 +169,12 @@ export function calculateInvestmentHistory(
       ? investment.verifiedPrincipal
       : contributions
         .filter(({ timestamp }) => timestamp <= verifiedAt)
-        .reduce((sum, { movement }) => sum + movement.amount, 0)
+        .reduce((sum, { movement }) => sum + signedFlowAmount(movement), 0)
     : 0
   const contributionsAtVerification = hasVerification
     ? contributions
       .filter(({ timestamp }) => timestamp <= verifiedAt)
-      .reduce((sum, { movement }) => sum + movement.amount, 0)
+      .reduce((sum, { movement }) => sum + signedFlowAmount(movement), 0)
     : 0
   const historicalLots: InvestmentLot[] = hasVerification
     ? [
@@ -171,9 +183,10 @@ export function calculateInvestmentHistory(
         : []),
       ...contributions
         .filter(({ timestamp }) => timestamp <= verifiedAt)
-        .map(({ movement, timestamp }) => ({ amount: movement.amount, principal: movement.amount, start: timestamp })),
+        .map(({ movement, timestamp }) => flowLot(movement, timestamp)),
     ]
     : buildLots(investment, movements)
+  const currentLots = buildLots(investment, movements)
   const timestamps = new Set<number>([startAt, endAt])
   addHistoryTimestamps(timestamps, startAt, endAt)
   for (const { timestamp } of contributions) {
@@ -190,19 +203,10 @@ export function calculateInvestmentHistory(
   }
 
   return sortedTimestamps.map((timestamp) => {
-    let principal: number
-    let earned: number
-    if (hasVerification && timestamp >= verifiedAt) {
-      const laterContributions = contributions
-        .filter((item) => item.timestamp > verifiedAt && item.timestamp <= timestamp)
-        .reduce((sum, { movement }) => sum + movement.amount, 0)
-      principal = principalAtVerification + laterContributions
-      earned = investment.verifiedBalance - principalAtVerification
-    } else {
-      const accrued = accruedAt(historicalLots, investment, timestamp)
-      principal = accrued.principal
-      earned = accrued.earned
-    }
+    const accrued = accruedAt(hasVerification && timestamp >= verifiedAt ? currentLots : historicalLots, investment, timestamp)
+    const principal = accrued.principal
+    const earned = accrued.earned
+
 
     const pointDate = new Date(timestamp)
     const dayKey = `${pointDate.getFullYear()}-${pointDate.getMonth()}-${pointDate.getDate()}`
@@ -229,35 +233,6 @@ function movementTimestamp(movement: Movement): number {
   return localTimestamp(movement.date, movement.time)
 }
 
-function verifiedBalanceAt(
-  investment: Investment & { verifiedBalance: number; verifiedAt: string },
-  movements: Movement[],
-  at: number,
-): { principal: number; earned: number; currentValue: number } {
-  const verifiedAt = new Date(investment.verifiedAt).getTime()
-  const verifiedPrincipal = typeof investment.verifiedPrincipal === 'number'
-    && Number.isFinite(investment.verifiedPrincipal)
-    ? investment.verifiedPrincipal
-    : movements
-      .filter((movement) =>
-        movement.investmentId === investment.id
-        && movement.direction === 'transfer'
-        && movementTimestamp(movement) <= verifiedAt,
-      )
-      .reduce((sum, movement) => sum + movement.amount, 0)
-  const postCutContributions = movements
-    .filter((movement) =>
-      movement.investmentId === investment.id
-      && movement.direction === 'transfer'
-      && movementTimestamp(movement) > verifiedAt
-      && movementTimestamp(movement) <= at,
-    )
-    .reduce((sum, movement) => sum + movement.amount, 0)
-  const principal = verifiedPrincipal + postCutContributions
-  const currentValue = investment.verifiedBalance + postCutContributions
-  return { principal, earned: currentValue - principal, currentValue }
-}
-
 function verifiedTrend(
   investment: Investment & { verifiedBalance: number; verifiedAt: string },
   movements: Movement[],
@@ -268,20 +243,15 @@ function verifiedTrend(
     && Number.isFinite(investment.verifiedPrincipal)
     ? investment.verifiedPrincipal
     : movements
-      .filter((movement) =>
-        movement.investmentId === investment.id
-        && movement.direction === 'transfer'
-        && movementTimestamp(movement) <= verifiedAt,
-      )
-      .reduce((sum, movement) => sum + movement.amount, 0)
-  const contributions = movements.filter(
-    (movement) => movement.investmentId === investment.id && movement.direction === 'transfer',
-  )
+      .filter((movement) => isInvestmentFlow(movement, investment) && movementTimestamp(movement) <= verifiedAt)
+      .reduce((sum, movement) => sum + signedFlowAmount(movement), 0)
+  const contributions = movements.filter((movement) => isInvestmentFlow(movement, investment))
   const contributionsAtCut = contributions
     .filter((movement) => movementTimestamp(movement) <= verifiedAt)
-    .reduce((sum, movement) => sum + movement.amount, 0)
+    .reduce((sum, movement) => sum + signedFlowAmount(movement), 0)
   const untrackedPrincipal = Math.max(verifiedPrincipal - contributionsAtCut, 0)
   const openingAt = localTimestamp(investment.date, investment.openingTime)
+  const currentLots = buildLots(investment, movements)
 
   return Array.from({ length: 12 }, (_, index) => {
     const date = index === 11
@@ -290,12 +260,10 @@ function verifiedTrend(
     const timestamp = date.getTime()
     const label = date.toLocaleDateString('es-CO', { month: 'short' }).replace('.', '')
     const balance = timestamp >= verifiedAt
-      ? investment.verifiedBalance + contributions
-        .filter((movement) => movementTimestamp(movement) > verifiedAt && movementTimestamp(movement) <= timestamp)
-        .reduce((sum, movement) => sum + movement.amount, 0)
+      ? accruedAt(currentLots, investment, timestamp).currentValue
       : (timestamp >= openingAt ? untrackedPrincipal : 0) + contributions
         .filter((movement) => movementTimestamp(movement) <= timestamp)
-        .reduce((sum, movement) => sum + movement.amount, 0)
+        .reduce((sum, movement) => sum + signedFlowAmount(movement), 0)
     return { label, value: balance }
   })
 }
@@ -319,9 +287,8 @@ export function calculateInvestmentPerformance(
   const timestamp = now.getTime()
   const verifiedAt = hasVerifiedBalance(investment) ? new Date(investment.verifiedAt).getTime() : Number.NaN
   const hasCurrentVerifiedBalance = hasVerifiedBalance(investment) && verifiedAt <= timestamp
-  const current = hasCurrentVerifiedBalance
-    ? verifiedBalanceAt(investment, movements, timestamp)
-    : accruedAt(lots, investment, timestamp)
+  const current = accruedAt(lots, investment, timestamp)
+
   const intervals = [
     { label: 'En 1 día', end: new Date(timestamp + DAY_MS) },
     { label: 'En 1 semana', end: new Date(timestamp + 7 * DAY_MS) },

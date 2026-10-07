@@ -1305,7 +1305,8 @@
   color: #ab6551;
 }
 
-.movement-icon.transfer {
+.movement-icon.transfer,
+.movement-icon.withdrawal {
   color: #64758e;
   background: #eff2f6;
 }
@@ -4923,4 +4924,344 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chart-tooltip-host {
+  position: relative;
+}
+
+.chart-tooltip {
+  position: absolute;
+  z-index: 20;
+  min-width: 176px;
+  max-width: 270px;
+  display: grid;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid #ffffff24;
+  border-radius: 12px;
+  color: #eef4f8;
+  background: linear-gradient(145deg, #112a40f2, #1d4460f2);
+  box-shadow: 0 18px 38px #0c1f3040, 0 2px 6px #0c1f3030;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  animation: chart-tooltip-in 0.14s ease-out;
+}
+
+.chart-tooltip::after {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid #ffffff24;
+  border-bottom: 1px solid #ffffff24;
+  background: #1a3d57;
+  content: '';
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.chart-tooltip.align-start::after {
+  left: 14px;
+}
+
+.chart-tooltip.align-end::after {
+  left: auto;
+  right: 14px;
+  transform: rotate(45deg);
+}
+
+.chart-tooltip-head {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ffffff1c;
+}
+
+.chart-tooltip-head strong {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chart-tooltip-head span {
+  color: #a9bccb;
+  font-size: 9px;
+}
+
+.chart-tooltip-main {
+  display: grid;
+  gap: 1px;
+}
+
+.chart-tooltip-main small {
+  color: #9fd9c8;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chart-tooltip-main b {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.chart-tooltip-rows {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.chart-tooltip-rows > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.chart-tooltip-rows dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b7c7d4;
+  font-size: 9px;
+}
+
+.chart-tooltip-rows dt i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.chart-tooltip-rows dd {
+  margin: 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.chart-tooltip-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.chart-tooltip-badges span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #bff0df;
+  background: #4cae9833;
+  font-size: 8px;
+  font-weight: 650;
+}
+
+.chart-hit {
+  cursor: pointer;
+  outline: none;
+}
+
+.daily-interest-bar,
+.long-term-projection-dot,
+.capital-yield-dot,
+.investment-chart-dot {
+  cursor: pointer;
+  transition: filter 0.15s ease, stroke-width 0.15s ease;
+}
+
+.daily-interest-bar:hover,
+.daily-interest-bar:focus {
+  filter: brightness(1.18) drop-shadow(0 3px 5px #367e7766);
+  stroke: #183e5b;
+  stroke-width: 1.6;
+}
+
+.long-term-projection-dot:hover {
+  stroke: #b2ebd5;
+  stroke-width: 6;
+}
+
+g:hover > .capital-yield-dot,
+g:focus-within > .capital-yield-dot,
+g:hover > .investment-chart-dot,
+g:focus-within > .investment-chart-dot {
+  stroke-width: 6;
+}
+
+.chart-guide-hover {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+g:hover > .chart-guide-hover,
+g:focus-within > .chart-guide-hover {
+  opacity: 1;
+}
+
+.chart-guide {
+  stroke: #8fa6b6;
+  stroke-dasharray: 3 4;
+  stroke-width: 1;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+@keyframes chart-tooltip-in {
+  from {
+    opacity: 0;
+    margin-top: 5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-tooltip {
+    animation: none;
+  }
+}
+
+/* Ventana de importación: más amplia, filas compactas y sin efectos costosos */
+.import-backdrop {
+  padding: 14px;
+  backdrop-filter: none;
+}
+
+.import-dialog {
+  width: min(100%, 1440px);
+  height: min(96vh, 1100px);
+  max-height: none;
+}
+
+.import-header {
+  padding-bottom: 8px;
+}
+
+.drop-zone {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 14px;
+  margin: 0 24px 10px;
+  padding: 10px 16px;
+  text-align: left;
+}
+
+.drop-zone .drop-icon {
+  margin: 0;
+}
+
+.drop-zone .drop-copy {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.drop-zone .drop-copy strong,
+.drop-zone .drop-copy span {
+  margin: 0;
+}
+
+.review-section {
+  flex: 1 1 auto;
+  padding: 2px 24px 12px;
+}
+
+.review-list {
+  gap: 6px;
+}
+
+.review-row {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #e5eaf0;
+  border-radius: 10px;
+  background: #fff;
+  contain: content;
+}
+
+.review-row.possible-duplicate {
+  border-color: #e6c27a;
+  background: #fffaf0;
+}
+
+.review-row.excluded {
+  opacity: 0.55;
+}
+
+.review-row-main {
+  display: grid;
+  grid-template-columns: 46px 128px 86px minmax(180px, 1fr) 118px 190px 150px auto auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.review-row label {
+  display: grid;
+  gap: 2px;
+  color: #6f7f94;
+  font-size: 9px;
+}
+
+.review-row label.review-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+}
+
+.review-row input:not([type='checkbox']),
+.review-row select {
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid #d9e1ea;
+  border-radius: 7px;
+  background: #fff;
+  color: #28405c;
+  font-size: 11px;
+}
+
+.review-row-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-left: 54px;
+}
+
+.review-row .review-account {
+  display: flex;
+  min-width: 260px;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-row .review-account > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.review-hint {
+  color: #7c8998;
+  font-size: 10px;
+}
+
+.review-row .review-source {
+  margin-left: auto;
+  color: #9aa6b5;
+  font-size: 9px;
+}
+
+@media (max-width: 1100px) {
+  .review-row-main {
+    grid-template-columns: 46px 1fr 1fr;
+  }
+
+  .review-row-main .review-field-wide {
+    grid-column: 1 / -1;
+  }
+
+  .review-row-extra {
+    padding-left: 0;
+  }
 }
