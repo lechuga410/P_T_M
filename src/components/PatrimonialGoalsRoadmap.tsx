@@ -46,6 +46,10 @@ export function PatrimonialGoalsRoadmap({ goals, currentTotal }: PatrimonialGoal
     y: routePoints[routeSegment].y + (routePoints[routeSegment + 1].y - routePoints[routeSegment].y) * routeSegmentProgress,
   }
 
+  const from = routePoints[routeSegment]
+  const to = routePoints[routeSegment + 1]
+  const planeAngle = Math.atan2(to.y - from.y, to.x - from.x) * (180 / Math.PI) * 0.75
+
   return (
     <article className="panel roadmap-panel">
       <div className="section-heading">
@@ -61,7 +65,6 @@ export function PatrimonialGoalsRoadmap({ goals, currentTotal }: PatrimonialGoal
           {activeGoal && <path className="roadmap-route-progress" d="M16 174 C68 174 53 132 105 132 S164 158 188 112 S236 76 263 91 S289 25 344 20" pathLength="100" style={{ strokeDasharray: `${progress} 100` }} />}
           <circle className="roadmap-landmark" cx="105" cy="132" r="5" />
           <circle className="roadmap-landmark" cx="263" cy="91" r="5" />
-          {activeGoal && <circle className="roadmap-current-marker" cx={currentPosition.x} cy={currentPosition.y} r="8" />}
           <circle className={activeGoal ? 'roadmap-target-marker active' : 'roadmap-target-marker'} cx="344" cy="20" r="9" />
         </svg>
         <div className="roadmap-start"><span>HOY</span><strong>{formatCurrency(currentTotal)}</strong></div>
@@ -72,10 +75,14 @@ export function PatrimonialGoalsRoadmap({ goals, currentTotal }: PatrimonialGoal
         <span className="roadmap-flag" aria-hidden="true">⚑</span>
         {activeGoal && (
           <div
-            className="roadmap-progress-label"
+            className="roadmap-plane"
             style={{ left: `${(currentPosition.x / 360) * 100}%`, top: `${(currentPosition.y / 190) * 100}%` }}
           >
-            {progress.toLocaleString('es-CO', { maximumFractionDigits: 0 })}%
+            <svg className="roadmap-plane-icon" viewBox="0 0 64 64" style={{ transform: `rotate(${planeAngle}deg)` }} aria-hidden="true">
+              <path d="M60 32c0-2.2-5-4-9-4H38L22 6h-6l8 22H12l-4-7H3l3 11-3 11h5l4-7h12l-8 22h6l16-22h13c4 0 9-1.800 9-4z" />
+              <path className="roadmap-plane-window" d="M50 30h6M44 30h2M38 30h2" />
+            </svg>
+            <span className="roadmap-progress-label">{progress.toLocaleString('es-CO', { maximumFractionDigits: 0 })}%</span>
           </div>
         )}
       </div>

@@ -5265,3 +5265,731 @@ g:focus-within > .chart-guide-hover {
     padding-left: 0;
   }
 }
+/* Etiquetas del eje X ubicadas seg�n la fecha real de cada punto. */
+.investment-chart-labels.positioned {
+  position: relative;
+  display: block;
+  height: 14px;
+}
+
+.investment-chart-labels.positioned span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.investment-chart-labels.positioned span.first {
+  transform: none;
+}
+
+.investment-chart-labels.positioned span.last {
+  transform: translateX(-100%);
+}
+
+.capital-evolution .chart-horizon-control {
+  border-color: #ffffff22;
+  background: #ffffff10;
+}
+
+.capital-evolution .chart-horizon-heading > strong {
+  color: #e8f1f5;
+}
+
+.capital-evolution .chart-horizon-heading > span {
+  color: #9fb4c2;
+}
+
+.capital-evolution .chart-horizon-option {
+  border-color: #ffffff26;
+  color: #c9d8e2;
+  background: #ffffff12;
+}
+
+.capital-evolution .chart-horizon-option:hover {
+  border-color: #7fd8c0;
+  color: #fff;
+}
+
+.capital-evolution .chart-horizon-option.selected {
+  border-color: #7fd8c0;
+  color: #0d2a3a;
+  background: #7fd8c0;
+  box-shadow: none;
+}
+.daily-interest-track {
+  fill: #eef3f4;
+  opacity: 0.7;
+}
+
+.daily-interest-bar {
+  stroke-width: 0 !important;
+}
+
+.daily-interest-average {
+  stroke: #8a9aa6;
+  stroke-dasharray: 2 5;
+  stroke-width: 1;
+  opacity: 0.8;
+}
+
+.daily-interest-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 0 2px;
+  color: #6c7d8a;
+  font-size: 9px;
+}
+
+.daily-interest-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-interest-legend i {
+  width: 14px;
+  height: 7px;
+  border-radius: 3px;
+}
+
+.daily-interest-legend i.up { background: linear-gradient(90deg, #18a97466, #18a974); }
+.daily-interest-legend i.down { background: linear-gradient(90deg, #e0495a66, #e0495a); }
+.daily-interest-legend i.avg { height: 0; border-top: 1px dashed #8a9aa6; }
+.daily-interest-legend small { margin-left: auto; color: #94a2ad; }.daily-interest-chart { padding-bottom: 28px; }
+.daily-interest-legend { margin-top: 4px; }
+
+.roadmap-plane {
+  position: absolute;
+  display: grid;
+  justify-items: center;
+  transform: translate(-50%, -50%);
+  transition: left 350ms ease, top 350ms ease;
+  pointer-events: none;
+}
+
+.roadmap-plane-icon {
+  width: 34px;
+  height: 34px;
+  fill: #2459a6;
+  filter: drop-shadow(0 3px 3px #173b3238);
+  transition: transform 350ms ease;
+}
+
+.roadmap-plane-window {
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-width: 2.4;
+}
+
+.roadmap-plane .roadmap-progress-label {
+  position: absolute;
+  bottom: 100%;
+  width: auto;
+  height: auto;
+  margin-bottom: -2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  transform: none;
+}
+.flight-fuel {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 22px;
+  color: #dbe7df;
+  border: 1px solid #2f4538;
+  background:
+    repeating-linear-gradient(0deg, #ffffff05 0 1px, transparent 1px 4px),
+    linear-gradient(150deg, #101a15, #17261e 60%, #0d1612);
+  box-shadow: inset 0 0 0 1px #ffffff0a, 0 12px 30px #0c140f40;
+  --fuel-color: #8be08b;
+}
+
+.flight-fuel-reserve { --fuel-color: #f0b84a; }
+.flight-fuel-empty { --fuel-color: #ee5a5a; }
+
+.flight-fuel-radar {
+  position: absolute;
+  top: -120px;
+  right: -90px;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  border: 1px solid #8be08b22;
+  background:
+    radial-gradient(circle, transparent 0 28%, #8be08b14 28.5% 29%, transparent 29.5% 56%, #8be08b14 56.5% 57%, transparent 57.5%),
+    conic-gradient(from 0deg, #8be08b00 0 70%, #8be08b30 100%);
+  animation: flight-radar-sweep 7s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes flight-radar-sweep { to { transform: rotate(360deg); } }
+
+.flight-fuel-header {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.flight-fuel-kicker {
+  color: #7fa58b;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+}
+
+.flight-fuel-header h2 {
+  margin: 4px 0 4px;
+  color: #f1f7f2;
+  font-size: 22px;
+}
+
+.flight-fuel-header p {
+  max-width: 520px;
+  margin: 0;
+  color: #8fa898;
+  font-size: 11px;
+}
+
+.flight-fuel-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--fuel-color);
+  border-radius: 4px;
+  color: var(--fuel-color);
+  background: #00000040;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.flight-fuel-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fuel-color);
+  box-shadow: 0 0 8px var(--fuel-color);
+  animation: flight-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes flight-blink { 50% { opacity: 0.25; } }
+
+.flight-fuel-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(280px, 2fr) minmax(190px, 0.9fr);
+  align-items: center;
+  gap: 26px;
+}
+
+.flight-fuel-main {
+  display: grid;
+  gap: 4px;
+}
+
+.flight-fuel-main span,
+.flight-fuel-stats dt {
+  color: #7fa58b;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.flight-fuel-main strong {
+  color: #f4faf5;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 14px #8be08b40;
+}
+
+.flight-fuel-main small {
+  color: #8fa898;
+  font-size: 10px;
+}
+
+.flight-fuel-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  color: #6f8a78;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 9px;
+}
+
+.flight-fuel-gauge {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid #2f4538;
+  border-radius: 5px;
+  background: #070d0a;
+}
+
+.flight-fuel-gauge .cell {
+  height: 30px;
+  border-radius: 2px;
+  background: #16231b;
+  transform: skewX(-14deg);
+}
+
+.flight-fuel-gauge .cell.lit {
+  background: var(--fuel-color);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--fuel-color) 55%, transparent);
+  animation: flight-cell-in 500ms ease backwards;
+  animation-delay: calc(var(--i) * 18ms);
+}
+
+@keyframes flight-cell-in { from { opacity: 0; transform: skewX(-14deg) scaleY(0.2); } }
+
+.flight-fuel-readout {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 7px;
+  color: #8fa898;
+  font-size: 10px;
+}
+
+.flight-fuel-readout span:first-child {
+  color: var(--fuel-color);
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.flight-fuel-stats {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.flight-fuel-stats div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px dashed #2f4538;
+}
+
+.flight-fuel-stats dd {
+  margin: 0;
+  color: #e6f1e8;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .flight-fuel-body { grid-template-columns: 1fr; }
+}
+/* Navegación superior: panel de instrumentos de tamaño fijo, sin expansión al pasar el cursor */
+.nav {
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid #2f4538;
+  border-radius: 15px;
+  background:
+    repeating-linear-gradient(0deg, #ffffff05 0 1px, transparent 1px 4px),
+    linear-gradient(160deg, #17261e, #0f1914);
+  box-shadow: inset 0 0 0 1px #ffffff08, 0 6px 16px #0c140f30;
+}
+
+.nav .nav-item,
+.nav .nav-item:hover,
+.nav .nav-item:focus-visible,
+.nav .nav-item.active,
+.nav .nav-item-register:hover,
+.nav .nav-item-register:focus-visible {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #8fa898;
+  background: transparent;
+  box-shadow: none;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+.nav .nav-item svg {
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
+}
+
+.nav .nav-item .nav-label,
+.nav .nav-item:hover .nav-label,
+.nav .nav-item:focus-visible .nav-label {
+  display: none;
+}
+
+.nav .nav-item:hover,
+.nav .nav-item:focus-visible {
+  border-color: #3b5646;
+  color: #e6f1e8;
+  background: #ffffff12;
+  outline: none;
+}
+
+.nav .nav-item.active,
+.nav .nav-item.active:hover {
+  border-color: #3f6a4f;
+  color: #8be08b;
+  background: #8be08b1c;
+}
+
+.nav .nav-item.active::before {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  width: 16px;
+  height: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: #8be08b;
+  box-shadow: 0 0 8px #8be08b;
+  content: '';
+}
+
+.nav .nav-item::after {
+  top: calc(100% + 12px);
+  border-color: #2f4538;
+  color: #dbe7df;
+  background: #101a15;
+  box-shadow: 0 6px 16px #0c140f50;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.nav .nav-item.active::after {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .nav {
+    width: auto;
+    margin: 0 auto;
+  }
+}
+/* Reloj de arena de marca */
+.brand-hourglass {
+  width: 34px;
+  height: 48px;
+  flex: 0 0 auto;
+  overflow: visible;
+  animation: hg-flip 8s cubic-bezier(0.6, 0, 0.3, 1) infinite;
+  filter: drop-shadow(0 2px 4px #203b5c26);
+}
+
+.hg-glass {
+  fill: none;
+  stroke: #2b4665;
+  stroke-linecap: round;
+  stroke-width: 2.4;
+}
+
+.hg-sand-top,
+.hg-sand-bottom {
+  fill: #d8a84a;
+}
+
+.hg-sand-top { animation: hg-top 8s linear infinite; }
+.hg-sand-bottom { animation: hg-bottom 8s linear infinite; }
+
+.hg-stream {
+  stroke: #d8a84a;
+  stroke-dasharray: 2 3;
+  stroke-linecap: round;
+  stroke-width: 1.4;
+  animation: hg-stream 8s linear infinite, hg-grain 0.35s linear infinite;
+}
+
+@keyframes hg-top {
+  0% { transform: translateY(0); }
+  88%, 100% { transform: translateY(22px); }
+}
+
+@keyframes hg-bottom {
+  0% { transform: translateY(22px); }
+  88%, 100% { transform: translateY(0); }
+}
+
+@keyframes hg-stream {
+  0%, 87% { opacity: 1; }
+  90%, 100% { opacity: 0; }
+}
+
+@keyframes hg-grain { to { stroke-dashoffset: -5; } }
+
+@keyframes hg-flip {
+  0%, 90% { transform: rotate(0deg); }
+  100% { transform: rotate(180deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-hourglass, .hg-sand-top, .hg-sand-bottom, .hg-stream { animation: none; }
+  .hg-sand-top { transform: translateY(11px); }
+  .hg-sand-bottom { transform: translateY(11px); }
+}
+/* Reloj de arena v2: sobreescribe la versión simple */
+.brand-hourglass {
+  width: 36px;
+  height: 50px;
+  filter: drop-shadow(0 3px 5px #203b5c30);
+  animation: hg-flip 9s cubic-bezier(0.7, 0, 0.25, 1) infinite;
+}
+
+.hg-glass-body { fill: url(#hg-glass-fill); }
+.hg-glass-edge { fill: none; stroke: #5b7da3; stroke-linejoin: round; stroke-width: 1.2; }
+.hg-shine { fill: none; stroke: #fff; stroke-linecap: round; stroke-width: 1.4; opacity: 0.75; }
+.hg-cap { fill: url(#hg-cap); stroke: #16293f; stroke-width: 0.6; }
+.hg-pillar { stroke: #2b4665; stroke-linecap: round; stroke-width: 1; opacity: 0.55; }
+
+.hg-sand-top {
+  fill: url(#hg-sand);
+  animation: hg-top 9s linear infinite;
+}
+
+.hg-sand-bottom {
+  fill: url(#hg-sand);
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: hg-bottom 9s linear infinite;
+}
+
+.hg-stream {
+  stroke: #e3b755;
+  stroke-dasharray: 1.600 2.400;
+  stroke-width: 1.100;
+  animation: hg-stream 9s linear infinite, hg-grain-flow 0.3s linear infinite;
+}
+
+.hg-grain {
+  fill: #f0c867;
+  opacity: 0;
+  animation: hg-fall 0.9s cubic-bezier(0.4, 0, 1, 1) infinite;
+}
+.hg-grain.g2 { animation-delay: 0.3s; }
+.hg-grain.g3 { animation-delay: 0.6s; }
+
+@keyframes hg-top {
+  0% { transform: translateY(0); opacity: 0; }
+  3% { opacity: 1; }
+  88%, 100% { transform: translateY(20px); opacity: 1; }
+}
+
+@keyframes hg-bottom {
+  0% { transform: scale(0.02); }
+  88%, 100% { transform: scale(1); }
+}
+
+@keyframes hg-stream {
+  0%, 86% { opacity: 1; }
+  89%, 100% { opacity: 0; }
+}
+
+@keyframes hg-grain-flow { to { stroke-dashoffset: -4; } }
+
+@keyframes hg-fall {
+  0% { transform: translateY(0); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translateY(17px); opacity: 0; }
+}
+
+@keyframes hg-flip {
+  0%, 91% { transform: rotate(0deg); }
+  100% { transform: rotate(180deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hg-sand-top { transform: translateY(10px); }
+  .hg-sand-bottom { transform: scale(0.5); }
+  .hg-grain { display: none; }
+}
+/* Cielo de la barra superior: azul a la derecha, atardecer hacia la izquierda */
+.sidebar {
+  background: linear-gradient(90deg, #f08a6b 0%, #f5a877 12%, #f6c79a 24%, #d9d3e8 36%, #a9d3f2 52%, #86c4f1 74%, #6fb6ec 100%);
+  border-bottom-color: #ffffff55;
+}
+
+.sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sky::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #ffffff40, transparent 55%, #1f4f8a14);
+  content: '';
+}
+
+.sidebar > :not(.sky) { position: relative; z-index: 1; }
+
+.sky-sun {
+  position: absolute;
+  top: 38%;
+  left: -40px;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffe3a8cc 0 18%, #ffb47a66 40%, transparent 70%);
+}
+
+.sky-cloud {
+  position: absolute;
+  height: 20px;
+  border-radius: 999px;
+  background: #ffffffc0;
+  filter: blur(2.5px);
+  animation: sky-drift linear infinite;
+}
+
+.sky-cloud::before,
+.sky-cloud::after {
+  position: absolute;
+  bottom: 6px;
+  border-radius: 50%;
+  background: inherit;
+  content: '';
+}
+
+.sky-cloud::before { left: 18%; width: 42%; height: 150%; }
+.sky-cloud::after { left: 48%; width: 32%; height: 115%; }
+
+.sky-cloud.c1 { top: 10px; left: 62%; width: 120px; opacity: 0.85; animation-duration: 90s; animation-delay: -30s; }
+.sky-cloud.c2 { top: 44px; left: 40%; width: 84px; opacity: 0.6; animation-duration: 120s; animation-delay: -70s; }
+.sky-cloud.c3 { top: 22px; left: 82%; width: 70px; opacity: 0.7; animation-duration: 100s; animation-delay: -10s; }
+.sky-cloud.c4 { top: 52px; left: 18%; width: 100px; opacity: 0.4; background: #ffe6d2c0; animation-duration: 140s; animation-delay: -50s; }
+
+@keyframes sky-drift {
+  from { transform: translateX(-30vw); }
+  to { transform: translateX(40vw); }
+}
+
+.sky-plane {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  animation: sky-fly 26s linear infinite;
+}
+
+.sky-plane svg {
+  width: 46px;
+  height: 17px;
+  fill: #fff;
+  filter: drop-shadow(0 1px 2px #1f4f8a55);
+}
+
+.sky-plane-windows { fill: none; stroke: #6fa4d6; stroke-linecap: round; stroke-width: 1.400; }
+
+.sky-contrail {
+  width: 110px;
+  height: 2px;
+  margin-right: -2px;
+  border-radius: 2px;
+  background: linear-gradient(270deg, #ffffffcc, transparent);
+}
+
+@keyframes sky-fly {
+  0%, 38% { transform: translateX(-160px); opacity: 0; }
+  42% { opacity: 1; }
+  66% { opacity: 1; }
+  70%, 100% { transform: translateX(105vw); opacity: 0; }
+}
+
+/* Panel de iconos en cristal azul cielo */
+.nav {
+  border-color: #ffffff80;
+  background: linear-gradient(160deg, #ffffff5c, #8cc6f23d);
+  box-shadow: inset 0 1px 0 #ffffff99, 0 6px 18px #1f4f8a26;
+  backdrop-filter: blur(8px);
+}
+
+.nav .nav-item,
+.nav .nav-item:hover,
+.nav .nav-item:focus-visible,
+.nav .nav-item.active,
+.nav .nav-item-register:hover,
+.nav .nav-item-register:focus-visible {
+  color: #1d4f82;
+}
+
+.nav .nav-item:hover,
+.nav .nav-item:focus-visible {
+  border-color: #ffffffb0;
+  color: #0f3a66;
+  background: #ffffff59;
+}
+
+.nav .nav-item.active,
+.nav .nav-item.active:hover {
+  border-color: #ffffffd0;
+  color: #0f3a66;
+  background: #ffffff85;
+  box-shadow: 0 2px 8px #1f4f8a22;
+}
+
+.nav .nav-item.active::before {
+  background: #1d6fc0;
+  box-shadow: 0 0 8px #ffffffcc;
+}
+
+.nav .nav-item::after {
+  border-color: #ffffffb0;
+  color: #0f3a66;
+  background: #ffffffee;
+  box-shadow: 0 6px 16px #1f4f8a33;
+}
+
+.sidebar .sidebar-footer strong { color: #0f3a66; }
+.sidebar .sidebar-footer small { color: #2c5c8c; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sky-cloud, .sky-plane { animation: none; }
+}
+.flow-chart { position: relative; }
+.month-column { border-radius: 8px; outline: none; cursor: pointer; transition: background 140ms ease; }
+.month-column:hover, .month-column:focus-visible { background: #4c86c612; }
+.month-column:hover .flow-bar, .month-column:focus-visible .flow-bar { filter: brightness(1.08) saturate(1.1); }
+
+.yield-rate-input {
+  min-width: 1ch;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  outline: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.yield-rate-input:focus {
+  box-shadow: 0 1px 0 #ffffff99;
+}

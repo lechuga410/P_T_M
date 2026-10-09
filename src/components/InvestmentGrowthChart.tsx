@@ -1,8 +1,12 @@
 import { useChartTooltip } from './ChartTooltip'
-import type { InvestmentTrendPoint } from '../lib/investmentPerformance'
+interface GrowthPoint {
+  label: string
+  value: number
+  timestamp?: number
+}
 
 interface InvestmentGrowthChartProps {
-  points: InvestmentTrendPoint[]
+  points: GrowthPoint[]
 }
 
 const formatCurrency = (amount: number) =>
@@ -21,8 +25,11 @@ export function InvestmentGrowthChart({ points }: InvestmentGrowthChartProps) {
   const max = Math.max(...points.map((point) => point.value), 1)
   const min = Math.min(...points.map((point) => point.value))
   const range = Math.max(max - min, 1)
+  const first = points[0].timestamp
+  const span = (points.at(-1)?.timestamp ?? 0) - (first ?? 0)
+  const byTime = first !== undefined && points.every((point) => point.timestamp !== undefined) && span > 0
   const coordinates = points.map((point, index) => ({
-    x: 12 + (index / Math.max(points.length - 1, 1)) * 976,
+    x: 12 + (byTime ? ((point.timestamp as number) - (first as number)) / span : index / Math.max(points.length - 1, 1)) * 976,
     y: 162 - ((point.value - min) / range) * 132,
   }))
   const line = coordinates.map((point) => `${point.x},${point.y}`).join(' ')
@@ -83,9 +90,12 @@ export function InvestmentGrowthChart({ points }: InvestmentGrowthChartProps) {
           )
         })}
       </svg>
-      <div className="investment-chart-labels">
-        {points.filter((_, index) => index % labelStep === 0 || index === points.length - 1).map((point, index) => (
-          <span key={`${point.label}-${index}`}>{point.label}</span>
+      <div className="investment-chart-labels positioned">
+        {points.map((point, index) => ({ point, index })).filter(({ index }) => index % labelStep === 0 || index === points.length - 1).filter(({ index }, _, all) => {
+          const lastX = coordinates[points.length - 1].x
+          return index === points.length - 1 || index === 0 || (lastX - coordinates[index].x > 140 && coordinates[index].x - coordinates[0].x > 140 && all.length > 0)
+        }).map(({ point, index }) => (
+          <span key={`${point.label}-${index}`} className={index === 0 ? 'first' : index === points.length - 1 ? 'last' : undefined} style={{ left: `${(coordinates[index].x / 1000) * 100}%` }}>{point.label}</span>
         ))}
       </div>
       {tooltip}

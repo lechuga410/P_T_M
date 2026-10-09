@@ -30,6 +30,13 @@ export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInter
   const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1)
   const slotWidth = 976 / totalDays
   const barWidth = Math.min(42, slotWidth * 0.82)
+  const changes = snapshots.map((snapshot, index) => {
+    const previous = snapshots[index - 1]?.interest
+    return previous && previous > 0 ? (snapshot.interest - previous) / previous : 0
+  })
+  const maxChange = Math.max(...changes.map(Math.abs), 0.0001)
+  const average = snapshots.reduce((sum, snapshot) => sum + snapshot.interest, 0) / snapshots.length
+  const averageY = 165 - (average / chartMax) * 130
   const labelStep = Math.max(1, Math.ceil(totalDays / 7))
   const preciseDate = new Intl.DateTimeFormat('es-CO', {
     day: '2-digit',
@@ -76,7 +83,12 @@ export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInter
         {[30, 75, 120, 165].map((y) => (
           <line key={y} x1="12" x2="988" y1={y} y2={y} className="daily-interest-gridline" />
         ))}
-        {snapshots.map((snapshot) => {
+        <line x1="12" x2="988" y1={averageY} y2={averageY} className="daily-interest-average" />
+        {snapshots.map((snapshot, index) => {
+          const change = changes[index]
+          const intensity = Math.sqrt(Math.abs(change) / maxChange)
+          const tone = change < 0 ? '#e0495a' : '#18a974'
+          const opacity = 0.42 + intensity * 0.58
           const x = xForDate(snapshot.date) - barWidth / 2
           const height = Math.max(snapshot.interest > 0 ? 2 : 0, (snapshot.interest / chartMax) * 130)
           const y = 165 - height
@@ -86,19 +98,22 @@ export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInter
             value: formatCurrency(snapshot.interest),
             rows: [
               { label: 'Saldo al cierre', value: formatCurrency(snapshot.closingBalance), color: '#79ceb7' },
+              ...(index > 0 ? [{ label: 'Vs. día anterior', value: `%`, color: tone }] : []),
               ...(snapshot.contributions ? [{ label: 'Aportes del día', value: formatCurrency(snapshot.contributions), color: '#d49a4d' }] : []),
             ],
             badges: snapshot.anchoredToConfirmation ? ['Incluye corte confirmado'] : undefined,
           }
           return (
             <g key={`${snapshot.investmentId}-${snapshot.date}`}>
+              <rect x={x} y={35} width={barWidth} height={130} rx={Math.min(6, barWidth / 2)} className="daily-interest-track" />
               <rect
                 x={x}
                 y={y}
                 width={barWidth}
                 height={height}
-                rx={Math.min(4, barWidth / 2)}
+                rx={Math.min(6, barWidth / 2)}
                 className="daily-interest-bar"
+                style={{ fill: tone, fillOpacity: opacity, stroke: tone }}
                 tabIndex={0}
                 aria-label={`${snapshot.date}: interés estimado ${formatCurrency(snapshot.interest)}, capital al cierre ${formatCurrency(snapshot.closingBalance)}`}
                 onMouseEnter={show(content)}
@@ -117,6 +132,12 @@ export function DailyInterestChart({ snapshots, startDate, endDate }: DailyInter
             {label.label}
           </span>
         ))}
+      </div>
+      <div className="daily-interest-legend">
+        <span><i className="down" />Baja vs. día anterior</span>
+        <span><i className="up" />Sube vs. día anterior</span>
+        <span><i className="avg" />Promedio {formatCurrency(average)}</span>
+        <small>Más intenso = mayor variación</small>
       </div>
       {tooltip}
     </div>

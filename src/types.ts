@@ -2,6 +2,11 @@ export type Currency = 'COP'
 
 export type InvestmentStatus = 'real' | 'estimado'
 
+export interface YieldChange {
+  from: number
+  rate: number
+}
+
 export interface Investment {
   id: string
   name: string
@@ -11,6 +16,7 @@ export interface Investment {
   growth: number
   monthlyIncome: number
   annualYield: number
+  yieldHistory?: YieldChange[]
   status: InvestmentStatus
   accent: string
   date: string

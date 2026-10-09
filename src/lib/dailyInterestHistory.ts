@@ -1,10 +1,9 @@
 import type { Investment, Movement } from '../types'
+import { growBalance, hasAnyYield, rateAt } from './yieldRates'
 import { isInvestmentFlow, signedFlowAmount } from './investmentFlows'
 
 export const DAILY_INTEREST_STORAGE_KEY = 'rastreo-patrimonial-daily-interest-v1'
 
-const DAY_MS = 24 * 60 * 60 * 1000
-const YEAR_MS = 365 * DAY_MS
 
 export interface DailyInterestSnapshot {
   investmentId: string
@@ -15,6 +14,7 @@ export interface DailyInterestSnapshot {
   closingBalance: number
   annualYield: number
   anchoredToConfirmation: boolean
+  confirmationKey?: string
 }
 
 function localTimestamp(date: string, time?: string): number {
@@ -34,7 +34,7 @@ function accrueInterval(
   balance: number,
   start: number,
   end: number,
-  annualYield: number,
+  schedule: Pick<Investment, 'annualYield' | 'yieldHistory'>,
   movements: Array<{ timestamp: number; amount: number }>,
 ): { balance: number; interest: number; contributions: number } {
   let currentBalance = balance
@@ -44,14 +44,14 @@ function accrueInterval(
 
   for (const movement of movements) {
     if (movement.timestamp <= cursor || movement.timestamp > end) continue
-    const grownBalance = currentBalance * Math.pow(1 + annualYield / 100, (movement.timestamp - cursor) / YEAR_MS)
+    const grownBalance = growBalance(currentBalance, schedule, cursor, movement.timestamp)
     interest += grownBalance - currentBalance
     currentBalance = grownBalance + movement.amount
     contributions += movement.amount
     cursor = movement.timestamp
   }
 
-  const grownBalance = currentBalance * Math.pow(1 + annualYield / 100, Math.max(end - cursor, 0) / YEAR_MS)
+  const grownBalance = growBalance(currentBalance, schedule, cursor, Math.max(end, cursor))
   interest += grownBalance - currentBalance
   return { balance: grownBalance, interest, contributions }
 }
@@ -81,6 +81,46 @@ export function loadDailyInterestHistory(): DailyInterestSnapshot[] {
   }
 }
 
+// Descarta el primer snapshot que ya no coincide con los movimientos o la confirmación actuales, y todos los posteriores (se encadenan).
+function dropStaleSnapshots(
+  snapshots: Map<string, DailyInterestSnapshot>,
+  investmentId: string,
+  movements: Array<{ timestamp: number; amount: number }>,
+  confirmation: { at: number; balance: number } | undefined,
+): void {
+  const ordered = [...snapshots.values()]
+    .filter((snapshot) => snapshot.investmentId === investmentId)
+    .sort((left, right) => left.date.localeCompare(right.date))
+  const confirmationKey = confirmation ? `${confirmation.at}:${confirmation.balance}` : undefined
+  const confirmationDate = confirmation ? formatLocalDate(new Date(confirmation.at)) : undefined
+
+  for (let index = 0; index < ordered.length; index += 1) {
+    const snapshot = ordered[index]
+    const previous = ordered[index - 1]
+    const day = new Date(`${snapshot.date}T12:00:00`)
+    const dayEnd = endOfLocalDay(day)
+    const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime()
+    const isNextDay = previous && formatLocalDate(new Date(day.getFullYear(), day.getMonth(), day.getDate() - 1)) === previous.date
+    let stale = false
+
+    if (isNextDay) {
+      const expected = movements
+        .filter((movement) => movement.timestamp >= dayStart && movement.timestamp <= dayEnd)
+        .reduce((sum, movement) => sum + movement.amount, 0)
+      stale = Math.abs(expected - snapshot.contributions) > 0.01
+        || Math.abs(previous.closingBalance - snapshot.openingBalance) > 0.01
+    }
+    if (!stale && confirmation && snapshot.date === confirmationDate) {
+      stale = !snapshot.anchoredToConfirmation || (snapshot.confirmationKey !== undefined && snapshot.confirmationKey !== confirmationKey)
+    }
+
+    if (stale) {
+      for (const outdated of ordered.slice(index)) snapshots.delete(`${outdated.investmentId}:${outdated.date}`)
+      return
+    }
+  }
+}
+
 export function appendDailyInterestSnapshots(
   investments: Investment[],
   movements: Movement[],
@@ -92,21 +132,19 @@ export function appendDailyInterestSnapshots(
   const lastCompletedEnd = endOfLocalDay(lastCompletedDate)
 
   for (const investment of investments) {
-    if (investment.annualYield <= 0) continue
+    if (!hasAnyYield(investment)) continue
     const investmentMovements = movements
       .filter((movement) => isInvestmentFlow(movement, investment))
       .map((movement) => ({ timestamp: localTimestamp(movement.date, movement.time), amount: signedFlowAmount(movement) }))
       .sort((left, right) => left.timestamp - right.timestamp)
-    const investmentSnapshots = [...snapshots.values()]
-      .filter((snapshot) => snapshot.investmentId === investment.id)
-      .sort((left, right) => left.date.localeCompare(right.date))
     const openingAt = localTimestamp(investment.date, investment.openingTime)
     const verifiedAt = investment.verifiedAt ? new Date(investment.verifiedAt).getTime() : Number.NaN
     const hasVerifiedBalance = typeof investment.verifiedBalance === 'number'
       && Number.isFinite(investment.verifiedBalance)
       && investment.verifiedBalance >= 0
       && Number.isFinite(verifiedAt)
-    const firstRecordedDate = investmentSnapshots[0]?.date
+    dropStaleSnapshots(snapshots, investment.id, investmentMovements, hasVerifiedBalance && typeof investment.verifiedBalance === 'number' ? { at: verifiedAt, balance: investment.verifiedBalance } : undefined)
+    const firstRecordedDate = [...snapshots.values()].filter((snapshot) => snapshot.investmentId === investment.id).map((snapshot) => snapshot.date).sort()[0]
 
     if (firstRecordedDate && openingAt < new Date(`${firstRecordedDate}T00:00:00`).getTime()) {
       const contributionsAtVerification = hasVerifiedBalance
@@ -155,7 +193,7 @@ export function appendDailyInterestSnapshots(
             historicalBalance,
             intervalStart,
             verifiedAt,
-            investment.annualYield,
+            investment,
             investmentMovements.filter((movement) => movement.timestamp > intervalStart && movement.timestamp <= verifiedAt),
           )
           dailyInterest += beforeCut.interest
@@ -165,7 +203,7 @@ export function appendDailyInterestSnapshots(
             historicalBalance,
             verifiedAt,
             dayEnd,
-            investment.annualYield,
+            investment,
             investmentMovements.filter((movement) => movement.timestamp > verifiedAt && movement.timestamp <= dayEnd),
           )
           dailyInterest += afterCut.interest
@@ -176,7 +214,7 @@ export function appendDailyInterestSnapshots(
             historicalBalance,
             intervalStart,
             dayEnd,
-            investment.annualYield,
+            investment,
             investmentMovements.filter((movement) => movement.timestamp > intervalStart && movement.timestamp <= dayEnd),
           )
           dailyInterest = accrued.interest
@@ -192,7 +230,7 @@ export function appendDailyInterestSnapshots(
             contributions: dailyContributions,
             interest: dailyInterest,
             closingBalance: historicalBalance,
-            annualYield: investment.annualYield,
+            annualYield: rateAt(investment, dayEnd),
             anchoredToConfirmation: hasCutInDay,
           })
         }
@@ -250,7 +288,7 @@ export function appendDailyInterestSnapshots(
           balance,
           intervalStart,
           verifiedAt,
-          investment.annualYield,
+          investment,
           investmentMovements.filter((movement) => movement.timestamp > intervalStart && movement.timestamp <= verifiedAt),
         )
         dailyInterest += beforeCut.interest
@@ -261,7 +299,7 @@ export function appendDailyInterestSnapshots(
           balance,
           verifiedAt,
           dayEnd,
-          investment.annualYield,
+          investment,
           investmentMovements.filter((movement) => movement.timestamp > verifiedAt && movement.timestamp <= dayEnd),
         )
         dailyInterest += afterCut.interest
@@ -272,7 +310,7 @@ export function appendDailyInterestSnapshots(
           balance,
           intervalStart,
           dayEnd,
-          investment.annualYield,
+          investment,
           investmentMovements.filter((movement) => movement.timestamp > intervalStart && movement.timestamp <= dayEnd),
         )
         dailyInterest = accrued.interest
@@ -288,8 +326,9 @@ export function appendDailyInterestSnapshots(
           contributions: dailyContributions,
           interest: dailyInterest,
           closingBalance: balance,
-          annualYield: investment.annualYield,
+          annualYield: rateAt(investment, dayEnd),
           anchoredToConfirmation,
+          confirmationKey: anchoredToConfirmation ? `${verifiedAt}:${investment.verifiedBalance}` : undefined,
         })
       }
 
@@ -355,7 +394,7 @@ export function estimateInvestmentBalanceNow(
     balance,
     anchorTimestamp,
     now.getTime(),
-    investment.annualYield,
+    investment,
     contributions.filter((movement) => movement.timestamp > anchorTimestamp && movement.timestamp <= now.getTime()),
   ).balance
 }

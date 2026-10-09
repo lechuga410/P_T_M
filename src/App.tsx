@@ -7,9 +7,13 @@ import { IncomeDistributionChart } from './components/IncomeDistributionChart'
 import { InvestmentGrowthChart } from './components/InvestmentGrowthChart'
 import { LongTermProjectionChart } from './components/LongTermProjectionChart'
 import { PatrimonialGoalsRoadmap } from './components/PatrimonialGoalsRoadmap'
+import { FlightFuelBudget } from './components/FlightFuelBudget'
+import { MonthlyFlowChart } from './components/MonthlyFlowChart'
 import { PortfolioBars } from './components/PortfolioBars'
 import nuCajitaImage from '../imagenes/cajita_nu.jfif'
 import type { ImportedTransaction } from './lib/financialImport'
+import { YieldRateInput } from './components/YieldRateInput'
+import { withYieldChange } from './lib/yieldRates'
 import { parseCopAmount } from './lib/currencyInput'
 import { calculateInvestmentHistory, calculateInvestmentPerformance, withCurrentInvestmentPerformance } from './lib/investmentPerformance'
 import { AVAILABLE_ACCOUNT_ID, affectsInvestment, signedFlowAmount, WITHDRAWAL_CATEGORY, WITHDRAWAL_RECEIVED_CATEGORY } from './lib/investmentFlows'
@@ -44,7 +48,9 @@ import './App.css'
 const colors = ['#2459a6', '#557fc1', '#6b78b9', '#3182ce', '#8296b2', '#3d668f']
 
 type SectionId = 'dashboard' | 'investments' | 'new-investment' | 'investment-detail' | 'movements' | 'projections'
-type ChartHorizon = '1' | '3' | '6' | '12' | 'custom'
+type ChartHorizon = '7d' | '1' | '3' | '6' | '12' | 'all' | 'custom'
+const HORIZON_OPTIONS = [['7d', '7 días'], ['1', '1 mes'], ['3', '3 meses'], ['6', '6 meses'], ['12', '12 meses'], ['all', 'Desde apertura'], ['custom', 'Personalizado']] as const
+const MIN_CHART_SPAN_MS = 60 * 60 * 1000
 type DailyInterestHorizon = 'daily' | '7' | '30' | '90' | '180' | '365' | 'custom'
 
 interface AppRoute {
@@ -115,6 +121,9 @@ const dateBeforeMonths = (value: Date, months: number) => {
 
 const dateBeforeDays = (value: Date, days: number) =>
   new Date(value.getFullYear(), value.getMonth(), value.getDate() - days)
+
+const horizonStart = (horizon: ChartHorizon, now: Date): number =>
+  horizon === '7d' ? now.getTime() - 7 * 24 * 60 * 60 * 1000 : horizon === 'all' ? 0 : dateBeforeMonths(now, Number(horizon)).getTime()
 
 const formatPreciseCurrency = (amount: number) =>
   new Intl.NumberFormat('es-CO', {
@@ -242,7 +251,7 @@ function App() {
   const [patrimonialGoals, setPatrimonialGoals] = useState<PatrimonialGoal[]>(loadPatrimonialGoals)
   const [period, setPeriod] = useState(6)
   const [historyFilter, setHistoryFilter] = useState<'all' | 'income' | 'expense'>('all')
-  const [balanceChartHorizon, setBalanceChartHorizon] = useState<ChartHorizon>('12')
+  const [balanceChartHorizon, setBalanceChartHorizon] = useState<ChartHorizon>('all')
   const [balanceCustomStart, setBalanceCustomStart] = useState(() => formatLocalDate(dateBeforeMonths(now, 12)))
   const [balanceCustomEnd, setBalanceCustomEnd] = useState(() => formatLocalDate(now))
   const [breakdownChartHorizon, setBreakdownChartHorizon] = useState<ChartHorizon>('12')
@@ -327,9 +336,10 @@ function App() {
   )
 
   useEffect(() => {
-    if (dailyInterestWithAppendedSnapshots.length === dailyInterestHistory.length) return
     try {
-      localStorage.setItem(DAILY_INTEREST_STORAGE_KEY, JSON.stringify(dailyInterestWithAppendedSnapshots))
+      const serialized = JSON.stringify(dailyInterestWithAppendedSnapshots)
+      if (serialized === localStorage.getItem(DAILY_INTEREST_STORAGE_KEY)) return
+      localStorage.setItem(DAILY_INTEREST_STORAGE_KEY, serialized)
     } catch (error) {
       console.error('No se pudo guardar el historial permanente de intereses diarios.', error)
       const timeout = window.setTimeout(() => {
@@ -337,7 +347,7 @@ function App() {
       }, 0)
       return () => window.clearTimeout(timeout)
     }
-  }, [dailyInterestHistory.length, dailyInterestWithAppendedSnapshots])
+  }, [dailyInterestWithAppendedSnapshots])
 
   useEffect(() => {
     if (!movements.some((movement) => movement.direction === 'income' && !movement.incomeActivity?.trim())) return
@@ -404,8 +414,8 @@ function App() {
     : undefined
   const balanceChartRange = useMemo(() => {
     if (balanceChartHorizon !== 'custom') {
-      const start = dateBeforeMonths(now, Number(balanceChartHorizon))
-      return { startAt: start.getTime(), endAt: now.getTime() }
+      const startAt = horizonStart(balanceChartHorizon, now)
+      return now.getTime() - startAt >= MIN_CHART_SPAN_MS ? { startAt, endAt: now.getTime() } : undefined
     }
 
     const start = new Date(`${balanceCustomStart}T00:00:00`)
@@ -416,13 +426,14 @@ function App() {
     const endAt = balanceCustomEnd === today
       ? now.getTime()
       : new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999).getTime()
-    if (balanceCustomStart >= balanceCustomEnd || startAt >= endAt || endAt > now.getTime()) return undefined
-    return { startAt, endAt }
+    if (balanceCustomStart >= balanceCustomEnd || endAt > now.getTime()) return undefined
+    const clampedStart = startAt
+    return endAt - clampedStart >= MIN_CHART_SPAN_MS ? { startAt: clampedStart, endAt } : undefined
   }, [balanceChartHorizon, balanceCustomEnd, balanceCustomStart, now])
   const breakdownChartRange = useMemo(() => {
     if (breakdownChartHorizon !== 'custom') {
-      const start = dateBeforeMonths(now, Number(breakdownChartHorizon))
-      return { startAt: start.getTime(), endAt: now.getTime() }
+      const startAt = horizonStart(breakdownChartHorizon, now)
+      return now.getTime() - startAt >= MIN_CHART_SPAN_MS ? { startAt, endAt: now.getTime() } : undefined
     }
 
     const start = new Date(`${breakdownCustomStart}T00:00:00`)
@@ -433,8 +444,9 @@ function App() {
     const endAt = breakdownCustomEnd === today
       ? now.getTime()
       : new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999).getTime()
-    if (breakdownCustomStart >= breakdownCustomEnd || startAt >= endAt || endAt > now.getTime()) return undefined
-    return { startAt, endAt }
+    if (breakdownCustomStart >= breakdownCustomEnd || endAt > now.getTime()) return undefined
+    const clampedStart = startAt
+    return endAt - clampedStart >= MIN_CHART_SPAN_MS ? { startAt: clampedStart, endAt } : undefined
   }, [breakdownChartHorizon, breakdownCustomEnd, breakdownCustomStart, now])
   const balanceHistory = useMemo(
     () => selectedInvestmentRecord && balanceChartRange
@@ -594,6 +606,14 @@ function App() {
     setVerifiedBalanceInput('')
     setVerifiedAtInput(formatLocalDateTime(new Date()))
     setFormMessage(`Saldo confirmado guardado: ${formatPreciseCurrency(balance)}.`)
+  }
+
+  const changeYieldRate = (rate: number) => {
+    if (!selectedInvestmentRecord) return
+    const changedAt = Date.now()
+    persistInvestments(investments.map((investment) => investment.id === selectedInvestmentRecord.id
+      ? withYieldChange(investment, rate, changedAt)
+      : investment))
   }
 
   const deleteInvestment = (investmentId: string) => {
@@ -784,9 +804,38 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-cluster">
-          <button type="button" className="brand" onClick={() => navigateTo('dashboard')}>
-            <span className="brand-mark">SSV</span>
-            <span className="brand-name">Rastreo<span>Patrimonial</span></span>
+          <button type="button" className="brand" aria-label="Ir al dashboard" onClick={() => navigateTo('dashboard')}>
+            <svg className="brand-hourglass" viewBox="0 0 40 56" role="img" aria-label="Rastreo Patrimonial">
+              <defs>
+                <clipPath id="hg-top"><path d="M9 8h22c0 9-7 14-10 20h-2C16 22 9 17 9 8z" /></clipPath>
+                <clipPath id="hg-bottom"><path d="M19 28h2c3 6 10 11 10 20H9c0-9 7-14 10-20z" /></clipPath>
+                <linearGradient id="hg-sand" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0" stopColor="#f6d27a" />
+                  <stop offset="1" stopColor="#c8932f" />
+                </linearGradient>
+                <linearGradient id="hg-cap" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stopColor="#4a6b8a" />
+                  <stop offset="1" stopColor="#1f3a57" />
+                </linearGradient>
+                <linearGradient id="hg-glass-fill" x1="0" x2="1" y1="0" y2="0">
+                  <stop offset="0" stopColor="#9fc4e8" stopOpacity="0.35" />
+                  <stop offset="0.5" stopColor="#ffffff" stopOpacity="0.08" />
+                  <stop offset="1" stopColor="#9fc4e8" stopOpacity="0.3" />
+                </linearGradient>
+              </defs>
+              <path className="hg-glass-body" d="M9 8c0 9 7 14 10 20-3 6-10 11-10 20h22c0-9-7-14-10-20 3-6 10-11 10-20z" />
+              <g clipPath="url(#hg-top)"><rect className="hg-sand-top" x="8" y="8" width="24" height="20" /></g>
+              <g clipPath="url(#hg-bottom)"><path className="hg-sand-bottom" d="M20 31L33 48H7z" /></g>
+              <line className="hg-stream" x1="20" x2="20" y1="27" y2="47" />
+              <circle className="hg-grain g1" cx="20" cy="28" r="0.9" />
+              <circle className="hg-grain g2" cx="19.4" cy="28" r="0.8" />
+              <circle className="hg-grain g3" cx="20.6" cy="28" r="0.8" />
+              <path className="hg-glass-edge" d="M9 8c0 9 7 14 10 20-3 6-10 11-10 20h22c0-9-7-14-10-20 3-6 10-11 10-20z" />
+              <path className="hg-shine" d="M12 11c.4 4 2.600 6.500 4.500 9" />
+              <rect className="hg-cap" x="4" y="2.500" width="32" height="5.500" rx="2.500" />
+              <rect className="hg-cap" x="4" y="48" width="32" height="5.500" rx="2.500" />
+              <path className="hg-pillar" d="M6.500 8v40M33.500 8v40" />
+            </svg>
           </button>
           <div className="brand-actions" aria-label="Acciones de documentos">
             <button type="button" className="button button-primary import-trigger" onClick={() => setIsImportOpen(true)}>
@@ -798,6 +847,14 @@ function App() {
           </div>
         </div>
 
+        <div className="sky" aria-hidden="true">
+          <span className="sky-sun" />
+          <span className="sky-cloud c1" /><span className="sky-cloud c2" /><span className="sky-cloud c3" /><span className="sky-cloud c4" />
+          <div className="sky-plane">
+            <span className="sky-contrail" />
+            <svg viewBox="0 0 64 24"><path d="M2 12c0-1.500 6-3 12-3h14L20 1h4l14 8h12c6 0 12 1.500 12 3s-6 3-12 3H38l-14 8h-4l8-8H14C8 15 2 13.500 2 12z" /><path className="sky-plane-windows" d="M46 11.200h8M36 11.200h6" /></svg>
+          </div>
+        </div>
         <nav className="nav" aria-label="Navegación principal">
           {sections.map(({ id, label, icon }) => (
             <button
@@ -888,20 +945,7 @@ function App() {
             {hasCashflow ? (
               <>
                 <div className="chart-legend"><span><i className="legend-income" /> Ingresos</span><span><i className="legend-expense" /> Gastos</span></div>
-                <div className="flow-chart" style={{ gridTemplateColumns: `repeat(${monthlyBreakdown.length}, minmax(0, 1fr))` }}>
-                  {monthlyBreakdown.map((month, index) => {
-                    const maxAmount = Math.max(...monthlyBreakdown.flatMap((item) => [item.income, item.expense]), 1)
-                    return (
-                      <div className="month-column" key={`${month.label}-${index}`}>
-                        <div className="month-bars">
-                          <span className="flow-bar income-bar" title={`Ingresos: ${formatCurrency(month.income)}`} style={{ height: `${Math.max((month.income / maxAmount) * 100, month.income ? 5 : 0)}%` }} />
-                          <span className="flow-bar expense-bar" title={`Gastos: ${formatCurrency(month.expense)}`} style={{ height: `${Math.max((month.expense / maxAmount) * 100, month.expense ? 5 : 0)}%` }} />
-                        </div>
-                        <span className="month-label">{month.label}</span>
-                      </div>
-                    )
-                  })}
-                </div>
+                <MonthlyFlowChart months={monthlyBreakdown} movements={movements} now={now} />
               </>
             ) : (
               <div className="empty-chart"><span className="empty-chart-icon">↗</span><strong>{movements.length ? 'No hay ingresos o gastos en este periodo' : 'Aún no hay movimientos'}</strong><p>{movements.length ? 'Las transferencias entre tus propias cuentas no se cuentan como ingreso o gasto.' : 'Registra ingresos y gastos para ver aquí tu flujo mensual.'}</p><button className="inline-link" type="button" onClick={() => navigateTo('movements')}>Registrar primer movimiento <span>→</span></button></div>
@@ -917,6 +961,8 @@ function App() {
             )}
           </article>
         </section>
+
+        <FlightFuelBudget totalPatrimony={summary.totalPatrimonio} movements={movements} now={now} />
 
         <section className={`panel goals-panel dashboard-goal${activePatrimonialGoal ? '' : ' dashboard-goal-empty'}`}>
           <div className="goal-intro"><span className="section-kicker">TU SIGUIENTE PASO</span><h2>Meta patrimonial</h2><p>Define el valor que quieres alcanzar y consulta cuánto te falta.</p></div>
@@ -1034,7 +1080,7 @@ function App() {
               {selectedInvestmentRecord?.verifiedAt ? <span className="detail-opening">Corte confirmado: {formatPreciseCurrency(selectedInvestmentRecord.verifiedBalance ?? 0)} · {formatVerifiedAt(selectedInvestmentRecord.verifiedAt)}</span> : null}
               <span className="detail-opening">Abierta el {formatDate(selectedInvestment.date)}{selectedInvestment.openingTime ? ` · ${selectedInvestment.openingTime}` : ''}</span>
             </div>
-            <span className="detail-yield"><small>RENDIMIENTO ANUAL</small><strong>{selectedInvestment.annualYield}% <span>EA</span></strong></span>
+            <span className="detail-yield"><small>RENDIMIENTO ANUAL</small><strong><YieldRateInput rate={selectedInvestment.annualYield} onCommit={changeYieldRate} />% <span>EA</span></strong></span>
           </section>
 
           <section className="panel performance-panel">
@@ -1077,13 +1123,7 @@ function App() {
                   <strong>Horizonte de esta gráfica</strong><span>No afecta la gráfica siguiente</span>
                 </div>
                 <div className="chart-horizon-options">
-                  {([
-                    ['1', '1 mes'],
-                    ['3', '3 meses'],
-                    ['6', '6 meses'],
-                    ['12', '12 meses'],
-                    ['custom', 'Personalizado'],
-                  ] as const).map(([value, label]) => (
+                  {HORIZON_OPTIONS.map(([value, label]) => (
                     <button
                       key={value}
                       type="button"
@@ -1105,7 +1145,7 @@ function App() {
                 )}
               </div>
               {balanceChartRange
-                ? <InvestmentGrowthChart points={balanceHistory.map((point) => ({ label: point.label, value: point.total }))} />
+                ? <InvestmentGrowthChart points={balanceHistory.map((point) => ({ label: point.label, value: point.total, timestamp: point.timestamp }))} />
                 : <p className="capital-yield-empty">Corrige las fechas para ver este periodo.</p>}
             </section>
 
@@ -1119,13 +1159,7 @@ function App() {
                   <strong>Horizonte de esta gráfica</strong><span>No afecta la gráfica anterior</span>
                 </div>
                 <div className="chart-horizon-options">
-                  {([
-                    ['1', '1 mes'],
-                    ['3', '3 meses'],
-                    ['6', '6 meses'],
-                    ['12', '12 meses'],
-                    ['custom', 'Personalizado'],
-                  ] as const).map(([value, label]) => (
+                  {HORIZON_OPTIONS.map(([value, label]) => (
                     <button
                       key={value}
                       type="button"

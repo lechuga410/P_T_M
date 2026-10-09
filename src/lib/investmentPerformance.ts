@@ -1,7 +1,7 @@
 import type { Investment, Movement } from '../types'
+import { growBalance } from './yieldRates'
 import { isInvestmentFlow, signedFlowAmount } from './investmentFlows'
 
-const YEAR_MS = 365 * 24 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
 
 export interface YieldPeriod {
@@ -41,12 +41,6 @@ interface InvestmentLot {
 function localTimestamp(date: string, time?: string): number {
   const timestamp = new Date(`${date}T${time || '12:00'}:00`).getTime()
   return Number.isFinite(timestamp) ? timestamp : 0
-}
-
-function valueAfterYield(amount: number, annualYield: number, start: number, end: number): number {
-  if (amount <= 0 || annualYield <= 0 || end <= start) return amount
-  const value = amount * Math.pow(1 + annualYield / 100, (end - start) / YEAR_MS)
-  return Number.isFinite(value) ? value : amount
 }
 
 function flowLot(movement: Movement, start: number): InvestmentLot {
@@ -107,7 +101,7 @@ function accruedAt(
 
   const events = lots.filter((lot) => lot.start <= at).sort((left, right) => left.start - right.start)
   for (const lot of events) {
-    value = cursor ? valueAfterYield(value, investment.annualYield, cursor, lot.start) : value
+    value = cursor ? growBalance(value, investment, cursor, lot.start) : value
     cursor = lot.start
     if (lot.withdrawal) {
       const withdrawn = Math.min(lot.amount, value)
@@ -118,7 +112,7 @@ function accruedAt(
       principal += lot.principal
     }
   }
-  if (cursor) value = valueAfterYield(value, investment.annualYield, cursor, at)
+  if (cursor) value = growBalance(value, investment, cursor, at)
 
   return { principal, earned: value - principal, currentValue: value }
 }
@@ -299,7 +293,7 @@ export function calculateInvestmentPerformance(
   ]
   const periods = intervals.map(({ label, end }) => ({
     label,
-    amount: valueAfterYield(current.currentValue, investment.annualYield, timestamp, end.getTime()) - current.currentValue,
+    amount: growBalance(current.currentValue, investment, timestamp, end.getTime()) - current.currentValue,
   }))
   const monthPoints: InvestmentTrendPoint[] = Array.from({ length: 12 }, (_, index) => {
     const date = new Date(now.getFullYear(), now.getMonth() - 11 + index, 1, 12)
