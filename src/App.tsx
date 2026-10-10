@@ -12,6 +12,7 @@ import { MonthlyFlowChart } from './components/MonthlyFlowChart'
 import { PortfolioBars } from './components/PortfolioBars'
 import nuCajitaImage from '../imagenes/cajita_nu.jfif'
 import type { ImportedTransaction } from './lib/financialImport'
+import { InvestmentsShowcase } from './components/InvestmentsShowcase'
 import { YieldRateInput } from './components/YieldRateInput'
 import { withYieldChange } from './lib/yieldRates'
 import { parseCopAmount } from './lib/currencyInput'
@@ -280,7 +281,8 @@ function App() {
     direction: 'income' as Movement['direction'],
     investmentId: '',
     destinationInvestmentId: '',
-    date: now.toISOString().slice(0, 10),
+    date: formatLocalDate(now),
+    time: '',
   }))
   const [goalTarget, setGoalTarget] = useState('')
   const navigateTo = (section: SectionId, investmentId?: string) => {
@@ -608,10 +610,12 @@ function App() {
     setFormMessage(`Saldo confirmado guardado: ${formatPreciseCurrency(balance)}.`)
   }
 
-  const changeYieldRate = (rate: number) => {
-    if (!selectedInvestmentRecord) return
+  const changeYieldRate = (investmentId: string, rate: number) => {
     const changedAt = Date.now()
-    persistInvestments(investments.map((investment) => investment.id === selectedInvestmentRecord.id
+    // Parte de lo guardado en disco para no pisar cambios hechos desde otra pestaña.
+    const stored = loadCollection<Investment>(STORAGE_KEY, investmentExamples)
+    const base = stored.some((investment) => investment.id === investmentId) ? stored : investments
+    persistInvestments(base.map((investment) => investment.id === investmentId
       ? withYieldChange(investment, rate, changedAt)
       : investment))
   }
@@ -684,9 +688,9 @@ function App() {
 
   const addMovement = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const amount = Number(movementForm.amount)
+    const amount = parseCopAmount(movementForm.amount) ?? Number.NaN
     if (!movementForm.title.trim() || !Number.isFinite(amount) || amount <= 0 || !movementForm.date) {
-      setFormMessage('Ingresa una descripción, una fecha y un monto mayor que cero.')
+      setFormMessage('Ingresa una descripción, una fecha y un monto válido mayor que cero (ej. 3.209,78).')
       return
     }
 
@@ -705,7 +709,9 @@ function App() {
     }
 
     const nowTime = new Date()
-    const time = flowAccountId && movementForm.date === formatLocalDate(nowTime)
+    const time = /^\d{2}:\d{2}$/.test(movementForm.time)
+      ? movementForm.time
+      : flowAccountId && movementForm.date === formatLocalDate(nowTime)
       ? `${String(nowTime.getHours()).padStart(2, '0')}:${String(nowTime.getMinutes()).padStart(2, '0')}`
       : undefined
     const movement = createMovement({
@@ -732,7 +738,7 @@ function App() {
     }
     if ((deltas.size || resolvedNew.investments !== investments) && !persistInvestments(applyValueDeltas(resolvedNew.investments, deltas))) return
     if (!persistMovements([...created, ...movements])) return
-    setMovementForm({ title: '', amount: '', category: '', incomeActivity: 'Empleo', direction: 'income', investmentId: '', destinationInvestmentId: '', date: new Date().toISOString().slice(0, 10) })
+    setMovementForm({ title: '', amount: '', category: '', incomeActivity: 'Empleo', direction: 'income', investmentId: '', destinationInvestmentId: '', date: formatLocalDate(new Date()), time: '' })
     setFormMessage(isWithdrawal ? 'Retiro registrado y saldos actualizados.' : 'Movimiento registrado.')
   }
   const exportData = () => {
@@ -1004,65 +1010,13 @@ function App() {
         </section>
         </>}
 
-        {activeSection === 'investments' && <section className="content-grid section-view investments-view">
-          <section className="investment-overview">
-            <div className="investment-overview-copy">
-              <span className="investment-overline">TU CAPITAL, EN UN SOLO LUGAR</span>
-              <h2>Un espacio para cada inversión.</h2>
-              <p>Entra a cualquier cuenta para consultar su actividad, aportes y evolución sin mezclar la información.</p>
-            </div>
-            <div className="investment-overview-aside">
-              <span className="overview-count-label">CUENTAS REGISTRADAS</span>
-              <strong>{String(portfolioInvestments.length).padStart(2, '0')}</strong>
-              <button type="button" onClick={() => navigateTo('new-investment')}><span>＋</span> Registrar inversión</button>
-            </div>
-            <span className="overview-orbit overview-orbit-one" />
-            <span className="overview-orbit overview-orbit-two" />
-          </section>
-          <article className="panel list-panel">
-            <div className="section-heading">
-              <div><span className="section-kicker">PORTAFOLIO ACTIVO</span><h2>Tus inversiones</h2></div>
-              <span className="section-count">{portfolioInvestments.length}</span>
-            </div>
-            {portfolioInvestments.length ? (
-              <div className="investment-list">
-                {portfolioInvestments.map((investment, index) => (
-                  <button
-                    type="button"
-                    className={`investment-card${/nu|cajita/i.test(`${investment.name} ${investment.institution}`) ? ' nu-investment-card' : ''}`}
-                    key={investment.id}
-                    onClick={() => navigateTo('investment-detail', investment.id)}
-                  >
-                    <span className="investment-card-art">
-                      {/nu|cajita/i.test(`${investment.name} ${investment.institution}`)
-                        ? <img src={nuCajitaImage} alt="" />
-                        : <span className="investment-generic-art" style={{ '--investment-accent': investment.accent || colors[index % colors.length] } as CSSProperties}><NavIcon name="wallet" /></span>}
-                      <span className={`investment-status status-${investment.verifiedAt ? 'real' : investment.status}`}>{investment.verifiedAt ? 'Saldo confirmado' : investment.status === 'real' ? 'Dato real' : 'Estimado'}</span>
-                      <span className="investment-card-arrow" aria-hidden="true">↗</span>
-                    </span>
-                    <span className="investment-card-content">
-                      <span className="investment-card-overline">{investment.institution} <span>·</span> {investment.type}</span>
-                      <strong className="investment-card-name">{investment.name}</strong>
-                      <span className="investment-card-balance">{formatPreciseCurrency(investment.value)}</span>
-                      <span className="investment-compound-indicator" aria-label={`Interés compuesto; rendimiento estimado ${formatCurrency(investment.growth)}`}>
-                        <svg viewBox="0 0 32 20" aria-hidden="true"><path d="M2 17 C9 16 13 14 18 11 S25 5 30 2" /><circle cx="30" cy="2" r="1.5" /></svg>
-                        <span>Interés compuesto</span>
-                        <strong>+{formatCurrency(investment.growth)}</strong>
-                      </span>
-                      <span className="investment-card-footer"><span>{investment.annualYield}% EA estimado</span><span>Ver cuenta <b>→</b></span></span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-investments">
-                <span className="empty-investment-icon"><NavIcon name="wallet" /></span>
-                <strong>Tu portafolio empieza aquí</strong>
-                <p>Aún no hay inversiones registradas. Crea la primera y tendrá su propio espacio para consultar movimientos y evolución.</p>
-                <button type="button" className="button button-primary" onClick={() => navigateTo('new-investment')}>Registrar primera inversión <span>→</span></button>
-              </div>
-            )}
-          </article>
+        {activeSection === 'investments' && <section className="section-view investments-view">
+          <InvestmentsShowcase
+            investments={portfolioInvestments}
+            performances={investmentPerformances}
+            onOpen={(investmentId) => navigateTo('investment-detail', investmentId)}
+            onCreate={() => navigateTo('new-investment')}
+          />
         </section>}
 
         {activeSection === 'investment-detail' && selectedInvestment && <section className="investment-detail-view section-view">
@@ -1080,7 +1034,7 @@ function App() {
               {selectedInvestmentRecord?.verifiedAt ? <span className="detail-opening">Corte confirmado: {formatPreciseCurrency(selectedInvestmentRecord.verifiedBalance ?? 0)} · {formatVerifiedAt(selectedInvestmentRecord.verifiedAt)}</span> : null}
               <span className="detail-opening">Abierta el {formatDate(selectedInvestment.date)}{selectedInvestment.openingTime ? ` · ${selectedInvestment.openingTime}` : ''}</span>
             </div>
-            <span className="detail-yield"><small>RENDIMIENTO ANUAL</small><strong><YieldRateInput rate={selectedInvestment.annualYield} onCommit={changeYieldRate} />% <span>EA</span></strong></span>
+            <span className="detail-yield"><small>RENDIMIENTO ANUAL</small><strong><YieldRateInput rate={selectedInvestment.annualYield} onCommit={(rate) => changeYieldRate(selectedInvestment.id, rate)} />% <span>EA</span></strong></span>
           </section>
 
           <section className="panel performance-panel">
@@ -1311,7 +1265,7 @@ function App() {
             <form className="data-form" onSubmit={addMovement}>
               <label>Descripción<input required value={movementForm.title} onChange={(event) => setMovementForm({ ...movementForm, title: event.target.value })} placeholder={movementForm.direction === 'income' ? 'Ej. Nómina de septiembre' : 'Ej. Pago de servicios'} /></label>
               <div className="form-row">
-                <label>Monto<input required type="number" min="1" step="1" value={movementForm.amount} onChange={(event) => setMovementForm({ ...movementForm, amount: event.target.value })} placeholder="0" /></label>
+                <label>Monto<input required inputMode="decimal" pattern="[0-9.,\s$]*" title="Ej. 3.209,78" value={movementForm.amount} onChange={(event) => setMovementForm({ ...movementForm, amount: event.target.value })} placeholder="0" /></label>
                 <label>Tipo<select value={movementForm.direction} onChange={(event) => setMovementForm({ ...movementForm, direction: event.target.value as Movement['direction'], investmentId: '', destinationInvestmentId: '' })}><option value="income">Ingreso</option><option value="expense">Gasto</option>                <option value="transfer">Transferencia</option><option value="withdrawal">Retiro de inversión</option></select></label>
               </div>
                               {movementForm.direction === 'withdrawal' && <div className="form-row">
@@ -1324,6 +1278,7 @@ function App() {
               <div className="form-row">
                 <label>Categoría<input value={movementForm.category} onChange={(event) => setMovementForm({ ...movementForm, category: event.target.value })} placeholder="Ej. Vivienda" /></label>
                 <label>Fecha<input required type="date" value={movementForm.date} onChange={(event) => setMovementForm({ ...movementForm, date: event.target.value })} /></label>
+                <label>Hora <span className="label-optional">(opcional)</span><input type="time" value={movementForm.time} onChange={(event) => setMovementForm({ ...movementForm, time: event.target.value })} /></label>
               </div>
               <button className="button button-primary" type="submit">Guardar movimiento <span>→</span></button>
             </form>
